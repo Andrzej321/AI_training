@@ -145,3 +145,14 @@ class FullFileForTestings(Dataset):
         speed_values_tensor = torch.tensor(speed_values, dtype=torch.float32)
 
         return can_signals_tensor, speed_values_tensor
+
+class SpeedEstimatorRNNModified(nn.Module):
+    def __init__(self, input_size, hidden_size, num_layers, output_size):
+        super(SpeedEstimatorRNNModified, self).__init__()
+        self.rnn = nn.RNN(input_size, hidden_size, num_layers, batch_first=True)
+        self.fc = nn.Linear(hidden_size, output_size)  # Fully connected layer
+
+    def forward(self, x):
+        out, _ = self.rnn(x)  # RNN returns (output, hidden_state)
+        out = self.fc(out)  # Apply the fully connected layer to all time steps
+        return out
