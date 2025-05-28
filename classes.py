@@ -4,13 +4,16 @@ from torch.utils.data import Dataset
 
 
 class SpeedEstimatorRNN(nn.Module):
-    def __init__(self, input_size, hidden_size, num_layers, output_size):
+    def __init__(self, input_size, hidden_size, num_layers, output_size, dropout_rate = 0.0):
         super(SpeedEstimatorRNN, self).__init__()
         self.hidden_size = hidden_size
         self.num_layers = num_layers
 
         # Define the RNN layer
         self.rnn = nn.RNN(input_size, hidden_size, num_layers, batch_first=True)
+
+        # Define a dropout layer after the RNN (optional but common)
+        self.dropout = nn.Dropout(dropout_rate)
 
         # Define the fully connected (output) layer
         self.fc = nn.Linear(hidden_size, output_size)
@@ -21,6 +24,9 @@ class SpeedEstimatorRNN(nn.Module):
 
         # Forward pass through the RNN
         out, _ = self.rnn(x, h0)
+
+        # Apply dropout to the output of the last timestep
+        out = self.dropout(out[:, -1, :])
 
         # Take the output from the last timestep
         out = self.fc(out[:, -1, :])
