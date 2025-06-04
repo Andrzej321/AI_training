@@ -1,38 +1,72 @@
 import torch, torch.nn as nn
 import os, glob, pandas as pd
 from torch.utils.data import Dataset
+import numpy as np
 
 
 class SpeedEstimatorRNN(nn.Module):
-    def __init__(self, input_size, hidden_size, num_layers, output_size, dropout_rate = 0.0):
+    def __init__(self, input_size, hidden_size, num_layers, output_size=2):
         super(SpeedEstimatorRNN, self).__init__()
         self.hidden_size = hidden_size
         self.num_layers = num_layers
-
-        # Define the RNN layer
         self.rnn = nn.RNN(input_size, hidden_size, num_layers, batch_first=True)
-
-        # Define a dropout layer after the RNN (optional but common)
-        self.dropout = nn.Dropout(dropout_rate)
-
-        # Define the fully connected (output) layer
         self.fc = nn.Linear(hidden_size, output_size)
 
     def forward(self, x):
-        # Initialize hidden state (set to zeros)
+        # Add sequence dimension if it's missing
+        if len(x.shape) == 2:
+            x = x.unsqueeze(1)  # Add sequence dimension
+
+        # Initialize hidden state
         h0 = torch.zeros(self.num_layers, x.size(0), self.hidden_size).to(x.device)
 
-        # Forward pass through the RNN
+        # Forward pass through RNN
         out, _ = self.rnn(x, h0)
 
-        # Apply dropout to the output of the last timestep
-        out = self.dropout(out[:, -1, :])
-
         # Take the output from the last timestep
-        out = self.fc(out[:, -1, :])
+        out = self.fc(out[:, -1, :])  # Now this will work correctly
 
         return out
 
+class SpeedEstimatorRNNModified(nn.Module):
+    def __init__(self, input_size, hidden_size, num_layers, output_size=2):
+        super(SpeedEstimatorRNNModified, self).__init__()
+        self.rnn = nn.RNN(input_size, hidden_size, num_layers, batch_first=True)
+        self.fc = nn.Linear(hidden_size, output_size)
+
+    def forward(self, x):
+        out, _ = self.rnn(x)  # RNN returns (output, hidden_state)
+        out = self.fc(out)  # Apply the fully connected layer to all time steps
+        return out
+
+class SpeedEstimatorLSTM(nn.Module):
+    def __init__(self, input_size, hidden_size, num_layers, output_size=2):  # Changed default output_size to 2
+        super(SpeedEstimatorLSTM, self).__init__()
+        self.hidden_size = hidden_size
+        self.num_layers = num_layers
+
+        self.lstm = nn.LSTM(input_size, hidden_size, num_layers, batch_first=True)
+        self.fc = nn.Linear(hidden_size, output_size)  # Now outputs 2 values: longitudinal and lateral velocity
+
+    def forward(self, x):
+        h0 = torch.zeros(self.num_layers, x.size(0), self.hidden_size).to(x.device)
+        c0 = torch.zeros(self.num_layers, x.size(0), self.hidden_size).to(x.device)
+
+        out, _ = self.lstm(x, (h0, c0))
+        out = self.fc(out[:, -1, :])  # out will now have shape (batch_size, 2)
+
+        return out
+
+class SpeedEstimatorLSTMModified(nn.Module):
+    def __init__(self, input_size, hidden_size, num_layers, output_size=2):
+        super(SpeedEstimatorLSTMModified, self).__init__()
+        self.lstm = nn.LSTM(input_size, hidden_size, num_layers, batch_first=True)
+        self.fc = nn.Linear(hidden_size, output_size)
+
+    def forward(self, x):
+        out, _ = self.lstm(x)
+        out = self.fc(out)  # out will have shape (batch_size, sequence_length, 2)
+        return out
 
 class VehicleSpeedDataset(Dataset):
     """
@@ -98,23 +132,25 @@ class VehicleSpeedDataset(Dataset):
         except Exception as e:
             raise RuntimeError(f"Error reading file {file}: {e}")
 
+        # Check for both velocity columns
+        if 'veh_u' not in df.columns or 'veh_v' not in df.columns:
+            raise ValueError("Expected columns 'veh_u' and 'veh_v' not found in the file!")
+
         # Extract CAN signals and speed values
-        if 'veh_u' in df.columns:
-            can_signals = df.drop(columns=['veh_u', 'time_series']).values
-            speed_values = df['veh_u'].values
-        else:
-            raise ValueError("Expected column 'veh_u' not found in the file!")
+        can_signals = df.drop(columns=['veh_u', 'veh_v', 'time_series']).values
+        speed_values_u = df['veh_u'].values
+        speed_values_v = df['veh_v'].values
 
         # Extract the sequence
         can_sequence = can_signals[start_idx:start_idx + self.seq_length, :]
-        speed_target = speed_values[start_idx + self.seq_length - 1]  # The speed at the last timestamp
+        speed_target_u = speed_values_u[start_idx + self.seq_length - 1]
+        speed_target_v = speed_values_v[start_idx + self.seq_length - 1]
 
         # Convert to PyTorch tensors
         can_sequence = torch.tensor(can_sequence, dtype=torch.float32)
-        speed_target = torch.tensor(speed_target, dtype=torch.float32)
+        speed_target = torch.tensor([speed_target_u, speed_target_v], dtype=torch.float32)
 
         return can_sequence, speed_target.unsqueeze(0)
-
 
 class FullFileForTestings(Dataset):
     """
@@ -139,12 +175,16 @@ class FullFileForTestings(Dataset):
             can_signals (torch.Tensor): The tensor containing all CAN signal inputs.
             speed_values (torch.Tensor): The tensor containing all speed values.
         """
-        # Ensure the required columns are present
-        if 'veh_u' in self.data.columns:
-            can_signals = self.data.drop(columns=['veh_u', 'time_series']).values
-            speed_values = self.data['veh_u'].values
-        else:
-            raise ValueError("Required column 'veh_u' not found in CSV file!")
+        # Check for both velocity columns
+        if 'veh_u' not in self.data.columns or 'veh_v' not in self.data.columns:
+            raise ValueError("Required columns 'veh_u' and 'veh_v' not found in CSV file!")
+
+        can_signals = self.data.drop(columns=['veh_u', 'veh_v', 'time_series']).values
+        speed_values_u = self.data['veh_u'].values
+        speed_values_v = self.data['veh_v'].values
+
+        # Stack both velocities together
+        speed_values = np.stack([speed_values_u, speed_values_v], axis=1)
 
         # Convert data to PyTorch tensors
         can_signals_tensor = torch.tensor(can_signals, dtype=torch.float32)
@@ -152,13 +192,3 @@ class FullFileForTestings(Dataset):
 
         return can_signals_tensor, speed_values_tensor
 
-class SpeedEstimatorRNNModified(nn.Module):
-    def __init__(self, input_size, hidden_size, num_layers, output_size):
-        super(SpeedEstimatorRNNModified, self).__init__()
-        self.rnn = nn.RNN(input_size, hidden_size, num_layers, batch_first=True)
-        self.fc = nn.Linear(hidden_size, output_size)  # Fully connected layer
-
-    def forward(self, x):
-        out, _ = self.rnn(x)  # RNN returns (output, hidden_state)
-        out = self.fc(out)  # Apply the fully connected layer to all time steps
-        return out
