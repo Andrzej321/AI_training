@@ -191,4 +191,3 @@ class FullFileForTestings(Dataset):
         speed_values_tensor = torch.tensor(speed_values, dtype=torch.float32)
 
         return can_signals_tensor, speed_values_tensor
-
