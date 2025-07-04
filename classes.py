@@ -68,6 +68,35 @@ class SpeedEstimatorLSTMModified(nn.Module):
         out = self.fc(out)  # out will have shape (batch_size, sequence_length, 2)
         return out
 
+class SpeedEstimatorGRU(nn.Module):
+    def __init__(self, input_size, hidden_size, num_layers, output_size=2):  # Changed default output_size to 2
+        super(SpeedEstimatorGRU, self).__init__()
+        self.hidden_size = hidden_size
+        self.num_layers = num_layers
+
+        self.gru = nn.GRU(input_size, hidden_size, num_layers, batch_first=True)
+        self.fc = nn.Linear(hidden_size, output_size)  # Now outputs 2 values: longitudinal and lateral velocity
+
+    def forward(self, x):
+        h0 = torch.zeros(self.num_layers, x.size(0), self.hidden_size).to(x.device)
+        c0 = torch.zeros(self.num_layers, x.size(0), self.hidden_size).to(x.device)
+
+        out, _ = self.gru(x, (h0, c0))
+        out = self.fc(out[:, -1, :])  # out will now have shape (batch_size, 2)
+
+        return out
+
+class SpeedEstimatorGRUModified(nn.Module):
+    def __init__(self, input_size, hidden_size, num_layers, output_size=2):
+        super(SpeedEstimatorGRUModified, self).__init__()
+        self.gru = nn.GRU(input_size, hidden_size, num_layers, batch_first=True)
+        self.fc = nn.Linear(hidden_size, output_size)
+
+    def forward(self, x):
+        out, _ = self.gru(x)
+        out = self.fc(out)  # out will have shape (batch_size, sequence_length, 2)
+        return out
+
 class VehicleSpeedDataset(Dataset):
     """
     A custom PyTorch Dataset for loading vehicle CAN signal data and speed values
