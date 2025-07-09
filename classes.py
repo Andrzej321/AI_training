@@ -3,7 +3,6 @@ import os, glob, pandas as pd
 from torch.utils.data import Dataset
 import numpy as np
 
-
 class SpeedEstimatorRNN(nn.Module):
     def __init__(self, input_size, hidden_size, num_layers, output_size=2):
         super(SpeedEstimatorRNN, self).__init__()
@@ -79,9 +78,8 @@ class SpeedEstimatorGRU(nn.Module):
 
     def forward(self, x):
         h0 = torch.zeros(self.num_layers, x.size(0), self.hidden_size).to(x.device)
-        c0 = torch.zeros(self.num_layers, x.size(0), self.hidden_size).to(x.device)
 
-        out, _ = self.gru(x, (h0, c0))
+        out, _ = self.gru(x, h0)
         out = self.fc(out[:, -1, :])  # out will now have shape (batch_size, 2)
 
         return out
