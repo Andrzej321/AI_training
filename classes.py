@@ -82,6 +82,8 @@ class SpeedEstimatorGRU(nn.Module):
         out, _ = self.gru(x, h0)
         out = self.fc(out[:, -1, :])  # out will now have shape (batch_size, 2)
 
+        out = torch.sigmoid(out) * 100
+
         return out
 
 class SpeedEstimatorGRUModified(nn.Module):
@@ -95,7 +97,7 @@ class SpeedEstimatorGRUModified(nn.Module):
         out = self.fc(out)  # out will have shape (batch_size, sequence_length, 2)
         return out
 
-class VehicleSpeedDataset(Dataset):
+class VehicleSpeedDatasetLongLat(Dataset):
     """
     A custom PyTorch Dataset for loading vehicle CAN signal data and speed values
     from multiple `.csv` files for RNN-based speed prediction.
@@ -176,6 +178,170 @@ class VehicleSpeedDataset(Dataset):
         # Convert to PyTorch tensors
         can_sequence = torch.tensor(can_sequence, dtype=torch.float32)
         speed_target = torch.tensor([speed_target_u, speed_target_v], dtype=torch.float32)
+
+        return can_sequence, speed_target.unsqueeze(0)
+
+class VehicleSpeedDatasetLong(Dataset):
+    """
+    A custom PyTorch Dataset for loading vehicle CAN signal data and speed values
+    from multiple `.csv` files for RNN-based speed prediction.
+    """
+
+    def __init__(self, data_path, extension="*.csv", seq_length=100, step_size=10):
+        """
+        Initialize the dataset object.
+
+        Args:
+            data_path (str): Path to the directory containing the `.csv` files.
+            extension (str): The file pattern to search for (e.g., "*.csv").
+            seq_length (int): The number of timesteps in each sequence.
+            step_size (int): The step size for the sliding window (default is 10).
+        """
+        self.csv_files = glob.glob(os.path.join(data_path, extension))
+        if len(self.csv_files) == 0:
+            raise RuntimeError(f"No files found in directory '{data_path}' with extension '{extension}'.")
+
+        self.seq_length = seq_length
+        self.step_size = step_size
+        self.data = []
+
+        # Pre-compute the number of valid sequences across all files
+        for file in self.csv_files:
+            df = pd.read_csv(file)
+
+            if len(df) < self.seq_length:
+                print(
+                    f"Skipping file {file} because it has fewer rows ({len(df)}) than seq_length ({self.seq_length})!")
+                continue
+
+            file_sequences = 0  # Counter for this file's sequences
+            for i in range(0, len(df) - self.seq_length + 1, self.step_size):
+                self.data.append((file, i))
+                file_sequences += 1
+
+    def __len__(self):
+        """
+        Return the total number of sequences across all files.
+        """
+        return len(self.data)
+
+    def __getitem__(self, idx):
+        """
+        Return a single sequence and its target value.
+
+        Args:
+            idx (int): The index of the sequence.
+
+        Returns:
+            can_signals (torch.Tensor): A tensor of CAN signal sequences.
+            speed_value (torch.Tensor): A tensor of the target value (speed).
+        """
+        # Get the file and start index for this sequence
+        file, start_idx = self.data[idx]
+
+        # Read the file
+        try:
+            df = pd.read_csv(file)
+        except Exception as e:
+            raise RuntimeError(f"Error reading file {file}: {e}")
+
+        # Check for both velocity columns
+        if 'veh_u' not in df.columns or 'veh_v' not in df.columns:
+            raise ValueError("Expected columns 'veh_u' and 'veh_v' not found in the file!")
+
+        # Extract CAN signals and speed values
+        can_signals = df.drop(columns=['veh_u', 'veh_v', 'time_series']).values
+        speed_values_u = df['veh_u'].values
+
+        # Extract the sequence
+        can_sequence = can_signals[start_idx:start_idx + self.seq_length, :]
+        speed_target_u = speed_values_u[start_idx + self.seq_length - 1]
+
+        # Convert to PyTorch tensors
+        can_sequence = torch.tensor(can_sequence, dtype=torch.float32)
+        speed_target = torch.tensor([speed_target_u], dtype=torch.float32)
+
+        return can_sequence, speed_target.unsqueeze(0)
+
+class VehicleSpeedDatasetLat(Dataset):
+    """
+    A custom PyTorch Dataset for loading vehicle CAN signal data and speed values
+    from multiple `.csv` files for RNN-based speed prediction.
+    """
+
+    def __init__(self, data_path, extension="*.csv", seq_length=100, step_size=10):
+        """
+        Initialize the dataset object.
+
+        Args:
+            data_path (str): Path to the directory containing the `.csv` files.
+            extension (str): The file pattern to search for (e.g., "*.csv").
+            seq_length (int): The number of timesteps in each sequence.
+            step_size (int): The step size for the sliding window (default is 10).
+        """
+        self.csv_files = glob.glob(os.path.join(data_path, extension))
+        if len(self.csv_files) == 0:
+            raise RuntimeError(f"No files found in directory '{data_path}' with extension '{extension}'.")
+
+        self.seq_length = seq_length
+        self.step_size = step_size
+        self.data = []
+
+        # Pre-compute the number of valid sequences across all files
+        for file in self.csv_files:
+            df = pd.read_csv(file)
+
+            if len(df) < self.seq_length:
+                print(
+                    f"Skipping file {file} because it has fewer rows ({len(df)}) than seq_length ({self.seq_length})!")
+                continue
+
+            file_sequences = 0  # Counter for this file's sequences
+            for i in range(0, len(df) - self.seq_length + 1, self.step_size):
+                self.data.append((file, i))
+                file_sequences += 1
+
+    def __len__(self):
+        """
+        Return the total number of sequences across all files.
+        """
+        return len(self.data)
+
+    def __getitem__(self, idx):
+        """
+        Return a single sequence and its target value.
+
+        Args:
+            idx (int): The index of the sequence.
+
+        Returns:
+            can_signals (torch.Tensor): A tensor of CAN signal sequences.
+            speed_value (torch.Tensor): A tensor of the target value (speed).
+        """
+        # Get the file and start index for this sequence
+        file, start_idx = self.data[idx]
+
+        # Read the file
+        try:
+            df = pd.read_csv(file)
+        except Exception as e:
+            raise RuntimeError(f"Error reading file {file}: {e}")
+
+        # Check for both velocity columns
+        if 'veh_u' not in df.columns or 'veh_v' not in df.columns:
+            raise ValueError("Expected columns 'veh_u' and 'veh_v' not found in the file!")
+
+        # Extract CAN signals and speed values
+        can_signals = df.drop(columns=['veh_u', 'veh_v', 'time_series']).values
+        speed_values_v = df['veh_v'].values
+
+        # Extract the sequence
+        can_sequence = can_signals[start_idx:start_idx + self.seq_length, :]
+        speed_target_v = speed_values_v[start_idx + self.seq_length - 1]
+
+        # Convert to PyTorch tensors
+        can_sequence = torch.tensor(can_sequence, dtype=torch.float32)
+        speed_target = torch.tensor([speed_target_v], dtype=torch.float32)
 
         return can_sequence, speed_target.unsqueeze(0)
 
