@@ -1,4 +1,4 @@
-what do I want with the AI training?
+what do I want with the AI training project? - this is the structure that I want to share in the thesis!!!
 
 - in Python
 	- create a framework on GitHub that has
@@ -9,37 +9,58 @@ what do I want with the AI training?
 		- data
 		    - Here I want to have diverse datasets for validation and training
 		    - The num of inputs shall be decreased
-		- GRU
-		- LSTM
-		- Simple RNN
-		- Transformer
-		- classes.py
-		- training_GRU.py
-		- training_LSTM.py
-		- training_RNN.py
-		- training_T.py
-		- testing.py
+        - trained_models
+            - GRU
+            - LSTM
+            - Simple RNN
+            - Transformer
+            - TCN
+        - code
+		    - classes.py
+		    - training_code:
+		        - training_debug.ipynb
+		            -> this is for debugging purposes only
+                - training_GRU.py
+                - training_LSTM.py
+                - training_RNN.py
+                - training_T.py
+                - training_TCN.py
+                    -> These (except the notebook) should be ready to run on OTB without modification
+                    -> The hyperparameters should be stored in a separate file -> during testing these should be reachable
+                        
+            - testing_code:
+		        - testing_debug.ipynb
+                - testing_general.py
+			        - requirements
+			            - this should load in all the models that were created
+			            - run them on the testing datasets
+			            - the estimated values shall be stored
+			            - performance measures shall be calculated on all the estimations
+                        - it shall be possible to run the tests on multiple models -> to be able to just run it and wait for the results
 			-> this should be a universal code that can test whichever model I choose
+
+- in Matlab
+    -
 
 
 location of the training project: where should it be?
     - work laptop
-        - not storing anything on it
+        - only editing everything that I have
     - GitHub
         - purpose: to have a central place for all the code
         - everything except the created models
     - SVN
+        - the code here must be correct and tested, and no debugging should be done here
         - storing the created models + the training code
         - this is mainly for OTB
 
 
-I still have to come up with the requirements
+I still have to come up with the requirements - not solved
     - this has to be calculated from the slips -> there are requirements for the slips from which I can calculate back the speed tolerance
     - these requirements are crucial for the project -> what am I aiming for?
     -
 
-Documentation
+Documentation - solved
     - I should start using an offline one to be able to insert the images
-    - overleaf is still good for editing sections
-    - I should start using GitHub to be able to use it anywhere
-    -
+    - overleaf is still good for editing sections and storing the whole project with the images
+    - For exporting the whole document, I can use an offline editor on my laptop

@@ -1,2 +1,0 @@
-The data is distributed in a way that all folders contain all the driving scenarios: suay_steer, auax_steer, buax_brk, sin_steer. The id-s correspond to the following driving scenarios:
-
