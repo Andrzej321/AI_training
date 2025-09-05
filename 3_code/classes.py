@@ -99,7 +99,7 @@ class SpeedEstimatorGRUModified(nn.Module):
 
 class VehicleSpeedDatasetLongLat(Dataset):
     """
-    A custom PyTorch Dataset for loading vehicle CAN signal data and speed values
+    A custom PyTorch Dataset for loading vehicle CAN signal 1_data and speed values
     from multiple `.csv` files for RNN-based speed prediction.
     """
 
@@ -183,7 +183,7 @@ class VehicleSpeedDatasetLongLat(Dataset):
 
 class VehicleSpeedDatasetLong(Dataset):
     """
-    A custom PyTorch Dataset for loading vehicle CAN signal data and speed values
+    A custom PyTorch Dataset for loading vehicle CAN signal 1_data and speed values
     from multiple `.csv` files for RNN-based speed prediction.
     """
 
@@ -265,7 +265,7 @@ class VehicleSpeedDatasetLong(Dataset):
 
 class VehicleSpeedDatasetLat(Dataset):
     """
-    A custom PyTorch Dataset for loading vehicle CAN signal data and speed values
+    A custom PyTorch Dataset for loading vehicle CAN signal 1_data and speed values
     from multiple `.csv` files for RNN-based speed prediction.
     """
 
@@ -357,7 +357,7 @@ class FullFileForTestings(Dataset):
         """
         self.csv_file_path = csv_file_path
 
-        # Load data
+        # Load 1_data
         self.data = pd.read_csv(csv_file_path)
 
     def get_full_data(self):
@@ -379,7 +379,7 @@ class FullFileForTestings(Dataset):
         # Stack both velocities together
         speed_values = np.stack([speed_values_u, speed_values_v], axis=1)
 
-        # Convert data to PyTorch tensors
+        # Convert 1_data to PyTorch tensors
         can_signals_tensor = torch.tensor(can_signals, dtype=torch.float32)
         speed_values_tensor = torch.tensor(speed_values, dtype=torch.float32)
 
