@@ -1,0 +1,45 @@
+what do I want with the AI training?
+
+- in Python
+	- create a framework on GitHub that has
+		- separate training codes that can be run
+	- the project tree should look like the following:
+		- README
+			-> this should include a general overview of the whole project
+		- data
+		    - Here I want to have diverse datasets for validation and training
+		    - The num of inputs shall be decreased
+		- GRU
+		- LSTM
+		- Simple RNN
+		- Transformer
+		- classes.py
+		- training_GRU.py
+		- training_LSTM.py
+		- training_RNN.py
+		- training_T.py
+		- testing.py
+			-> this should be a universal code that can test whichever model I choose
+
+
+location of the training project: where should it be?
+    - work laptop
+        - not storing anything on it
+    - GitHub
+        - purpose: to have a central place for all the code
+        - everything except the created models
+    - SVN
+        - storing the created models + the training code
+        - this is mainly for OTB
+
+
+I still have to come up with the requirements
+    - this has to be calculated from the slips -> there are requirements for the slips from which I can calculate back the speed tolerance
+    - these requirements are crucial for the project -> what am I aiming for?
+    -
+
+Documentation
+    - I should start using an offline one to be able to insert the images
+    - overleaf is still good for editing sections
+    - I should start using GitHub to be able to use it anywhere
+    -
