@@ -40,7 +40,8 @@ what do I want with the AI training project? - this is the structure that I want
 			-> this should be a universal code that can test whichever model I choose
 
 - in Matlab
-    -
+    - create the data for training
+        - normalization has to be added to check whether it makes a difference
 
 
 location of the training project: where should it be?
