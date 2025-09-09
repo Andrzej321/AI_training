@@ -250,7 +250,8 @@ class VehicleSpeedDatasetLong(Dataset):
             raise ValueError("Expected columns 'veh_u' and 'veh_v' not found in the file!")
 
         # Extract CAN signals and speed values
-        can_signals = df.drop(columns=['veh_u', 'veh_v', 'time_series']).values
+        can_signals = df.drop(columns=['veh_u', 'veh_v', 'Time', 'imu_COG_acc_z', 'imu_COG_gyro_roll_rate', 'imu_COG_gyro_pitch_rate'
+            , 'drive_torque_FR', 'drive_torque_RR', 'brake_pressure_FR', 'brake_pressure_RR', 'rwa_RM']).values
         speed_values_u = df['veh_u'].values
 
         # Extract the sequence
