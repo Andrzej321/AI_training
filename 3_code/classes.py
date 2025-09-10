@@ -373,7 +373,8 @@ class FullFileForTestings(Dataset):
         if 'veh_u' not in self.data.columns or 'veh_v' not in self.data.columns:
             raise ValueError("Required columns 'veh_u' and 'veh_v' not found in CSV file!")
 
-        can_signals = self.data.drop(columns=['veh_u', 'veh_v', 'time_series']).values
+        can_signals = self.data.drop(columns=['veh_u', 'veh_v', 'Time', 'imu_COG_acc_z', 'imu_COG_gyro_roll_rate', 'imu_COG_gyro_pitch_rate'
+            , 'drive_torque_FR', 'drive_torque_RR', 'brake_pressure_FR', 'brake_pressure_RR', 'rwa_RM']).values
         speed_values_u = self.data['veh_u'].values
         speed_values_v = self.data['veh_v'].values
 
