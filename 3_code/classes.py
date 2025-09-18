@@ -45,7 +45,7 @@ class SpeedEstimatorLSTM(nn.Module):
         self.num_layers = num_layers
 
         self.lstm = nn.LSTM(input_size, hidden_size, num_layers, batch_first=True)
-        self.fc = nn.Linear(hidden_size, output_size)  # Now outputs 2 values: longitudinal and lateral velocity
+        self.fc = nn.Linear(hidden_size, output_size)  # Now results 2 values: longitudinal and lateral velocity
 
     def forward(self, x):
         h0 = torch.zeros(self.num_layers, x.size(0), self.hidden_size).to(x.device)
@@ -74,7 +74,7 @@ class SpeedEstimatorGRU(nn.Module):
         self.num_layers = num_layers
 
         self.gru = nn.GRU(input_size, hidden_size, num_layers, batch_first=True)
-        self.fc = nn.Linear(hidden_size, output_size)  # Now outputs 2 values: longitudinal and lateral velocity
+        self.fc = nn.Linear(hidden_size, output_size)  # Now results 2 values: longitudinal and lateral velocity
 
     def forward(self, x):
         h0 = torch.zeros(self.num_layers, x.size(0), self.hidden_size).to(x.device)
