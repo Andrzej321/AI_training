@@ -58,7 +58,7 @@ if __name__ == '__main__':
 
         # Load test dataset and DataLoader
         test_dataset = VehicleSpeedDatasetLong(test_data_path, extension, seq_length=df["sequence_size"][j], step_size=step_size)
-        test_dataloader = DataLoader(test_dataset, batch_size=1, shuffle=False)  # Batch size = 1 for test evaluation
+        test_dataloader = DataLoader(test_dataset, batch_size=1, shuffle=False)  # Batch size = 1 for test eval
 
         # Initialize model, loss function, and optimizer
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
