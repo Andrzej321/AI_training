@@ -6,11 +6,11 @@ import pandas as pd
 
 if __name__ == '__main__':
     # Loading in the hyperparameters
-    hyperparams_loc = "../2_trained_models/GRU/trained_models/i7/it_4_norm/hyperparams_GRU_it_4.csv"
+    hyperparams_loc = "../2_trained_models/LSTM/trained_models/i7/it_3_norm/hyperparams_LSTM_it_3.csv"
     hyperparams_df = pd.read_csv(hyperparams_loc, delimiter=";")
 
     # Reading in the num of models and model locations
-    model_folder_loc = "../2_trained_models/GRU/trained_models/i7/it_4_norm/state_models/lon/"
+    model_folder_loc = "../2_trained_models/LSTM/trained_models/i7/it_3_norm/state_models/lon/"
     pt_files = [f for f in os.listdir(model_folder_loc) if f.endswith(".pt")]
 
     num_of_models = len(pt_files)
@@ -31,7 +31,7 @@ if __name__ == '__main__':
     validation_data_loc = "../1_data/i7/it_1/it_1_100_norm/3_validation/"
     validation_files = [f for f in os.listdir(validation_data_loc) if f.endswith(".csv")]
 
-    csv_save_loc = "../2_trained_models/GRU/trained_models/i7/it_4_norm/results/"
+    csv_save_loc = "../2_trained_models/LSTM/trained_models/i7/it_3_norm/results/lon/"
 
     for i in range(len(validation_files)):
         validation_df = pd.read_csv(validation_data_loc + validation_files[i], delimiter=",")
@@ -65,8 +65,8 @@ if __name__ == '__main__':
             step_size = int(checkpoint.get("step_size", 5))
 
             # Define and load the model USED IN TRAINING (not the Modified one)
-            from classes import SpeedEstimatorGRU  # local import to avoid changing earlier imports
-            model = SpeedEstimatorGRU(input_size, hidden_size, num_layers, output_size).to(device)
+            from classes import SpeedEstimatorLSTM  # local import to avoid changing earlier imports
+            model = SpeedEstimatorLSTM(input_size, hidden_size, num_layers, output_size).to(device)
             model.load_state_dict(checkpoint['model_state_dict'])
             model.eval()
 

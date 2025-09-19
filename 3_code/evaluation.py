@@ -4,19 +4,19 @@ import os
 
 if __name__ == '__main__':
     #Reading in the num of models and model locations
-    model_folder_loc = "../2_trained_models/GRU/trained_models/i7/it_4_norm/state_models/lon/"
+    model_folder_loc = "../2_trained_models/LSTM/trained_models/i7/it_3_norm/state_models/lon/"
     pt_files = [f for f in os.listdir(model_folder_loc) if f.endswith(".pt")]
 
     num_of_models = len(pt_files)
 
     #Reading in the result files
-    result_folder_loc = "../2_trained_models/GRU/trained_models/i7/it_4_norm/results/"
+    result_folder_loc = "../2_trained_models/LSTM/trained_models/i7/it_3_norm/results/lon/"
     meas_files = [f for f in os.listdir(result_folder_loc) if f.endswith(".csv")]
 
     num_of_meas_files = len(meas_files)
 
     #Location to save the eval results
-    eval_folder_loc = "../2_trained_models/GRU/trained_models/i7/it_4_norm/eval/"
+    eval_folder_loc = "../2_trained_models/LSTM/trained_models/i7/it_3_norm/eval/lon/"
 
     rows_spec = []
     rows_sum = []

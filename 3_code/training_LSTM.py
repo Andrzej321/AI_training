@@ -37,8 +37,8 @@ if __name__ == '__main__':
     num_epochs = 70
     num_models = len(df["model_type"])
 
-    location_state_GRU = "../2_trained_models/LSTM/trained_models/i7/it_3/state_models/lon/model_LSTM_lon_"
-    location_traced_GRU = "../2_trained_models/LSTM/trained_models/i7/it_3/traced_models/lon/model_LSTM_lon_"
+    location_state_LSTM = "../2_trained_models/LSTM/trained_models/i7/it_3/state_models/lon/model_LSTM_lon_"
+    location_traced_LSTM = "../2_trained_models/LSTM/trained_models/i7/it_3/traced_models/lon/model_LSTM_lon_"
 
     # Initialize variables to track the best test/validation loss
     patience = 5
@@ -62,7 +62,7 @@ if __name__ == '__main__':
 
         # Initialize model, loss function, and optimizer
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        model = SpeedEstimatorGRU(input_size, int(df["hidden_size"][j]), int(df["num_of_layers"][j]), output_size).to(device)
+        model = SpeedEstimatorLSTM(input_size, int(df["hidden_size"][j]), int(df["num_of_layers"][j]), output_size).to(device)
         criterion = nn.MSELoss()
         optimizer = optim.Adam(model.parameters(), lr=learning_rate)
 
@@ -130,22 +130,22 @@ if __name__ == '__main__':
                     "output_size": output_size,
                     "learning_rate": learning_rate,
                     "num_epochs": num_epochs
-                }, location_state_GRU + str(j) + ".pt")
-                print("model " + location_state_GRU + str(j) + ".pt" + " saved")
+                }, location_state_LSTM + str(j) + ".pt")
+                print("model " + location_state_LSTM + str(j) + ".pt" + " saved")
 
                 # Save traced model for MATLAB -> taken out
 
                 traced_model = torch.jit.trace(model, example_input)
-                torch.jit.save(traced_model, location_traced_GRU + str(j) + "_traced_jit_save.pt")  # Save as traced TorchScript model
-                print("model " + location_traced_GRU + str(j) + "_traced_jit_save.pt" + " saved")
+                torch.jit.save(traced_model, location_traced_LSTM + str(j) + "_traced_jit_save.pt")  # Save as traced TorchScript model
+                print("model " + location_traced_LSTM + str(j) + "_traced_jit_save.pt" + " saved")
 
-                traced_model.save(location_traced_GRU + str(j) + "_traced_simple_save.pt")  # Save as traced TorchScript model
-                print("model " + location_traced_GRU + str(j) + "_traced_simple_save.pt" + " saved")
+                traced_model.save(location_traced_LSTM + str(j) + "_traced_simple_save.pt")  # Save as traced TorchScript model
+                print("model " + location_traced_LSTM + str(j) + "_traced_simple_save.pt" + " saved")
 
 
 
                 # Export model to ONNX
-                onnx_model_path = location_traced_GRU + str(j) + "_traced.onnx"
+                onnx_model_path = location_traced_LSTM + str(j) + "_traced.onnx"
 
                 torch.onnx.export(
                     model,                     # PyTorch model
@@ -158,7 +158,7 @@ if __name__ == '__main__':
                     output_names=['output'],
                     dynamic_axes={'input': {0: 'batch_size'}, 'output': {0: 'batch_size'}}
                 )
-                print("model " + location_traced_GRU + str(j) + "_traced.onnx" + " saved")
+                print("model " + location_traced_LSTM + str(j) + "_traced.onnx" + " saved")
                 print("---------------------")
                 print(f"all model_{j} saved")
             else:

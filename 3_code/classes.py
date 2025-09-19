@@ -386,3 +386,65 @@ class FullFileForTestings(Dataset):
         speed_values_tensor = torch.tensor(speed_values, dtype=torch.float32)
 
         return can_signals_tensor, speed_values_tensor
+
+class PositionalEncoding(nn.Module):
+    def __init__(self, d_model: int, dropout: float = 0.1, max_len: int = 5000):
+        super().__init__()
+        self.dropout = nn.Dropout(p=dropout)
+
+        pe = torch.zeros(max_len, d_model)  # (max_len, d_model)
+        position = torch.arange(0, max_len, dtype=torch.float).unsqueeze(1)  # (max_len, 1)
+        div_term = torch.exp(torch.arange(0, d_model, 2, dtype=torch.float) * (-np.log(10000.0) / d_model))
+        pe[:, 0::2] = torch.sin(position * div_term)  # even indices
+        pe[:, 1::2] = torch.cos(position * div_term)  # odd indices
+        pe = pe.unsqueeze(0)  # (1, max_len, d_model)
+        self.register_buffer("pe", pe)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        # x: (batch, seq_len, d_model)
+        seq_len = x.size(1)
+        x = x + self.pe[:, :seq_len, :]
+        return self.dropout(x)
+
+class SpeedEstimatorTransformer(nn.Module):
+    """
+    Transformer encoder-based speed estimator.
+    Expects input of shape (batch, seq_len, input_size).
+    Produces (batch, output_size) by reading the last time step.
+    """
+    def __init__(
+        self,
+        input_size: int,
+        d_model: int,
+        num_layers: int,
+        output_size: int = 1,
+        nhead: int = 4,
+        dim_feedforward: int = None,
+        dropout: float = 0.1,
+    ):
+        super().__init__()
+        if dim_feedforward is None:
+            dim_feedforward = 4 * d_model
+
+        self.input_proj = nn.Linear(input_size, d_model)
+        self.pos_enc = PositionalEncoding(d_model, dropout=dropout)
+
+        encoder_layer = nn.TransformerEncoderLayer(
+            d_model=d_model,
+            nhead=nhead,
+            dim_feedforward=dim_feedforward,
+            dropout=dropout,
+            batch_first=True,  # keep (batch, seq, feature)
+            activation="relu",
+        )
+        self.encoder = nn.TransformerEncoder(encoder_layer, num_layers=num_layers)
+        self.head = nn.Linear(d_model, output_size)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        # x: (batch, seq_len, input_size)
+        x = self.input_proj(x)                # (batch, seq, d_model)
+        x = self.pos_enc(x)                  # (batch, seq, d_model)
+        x = self.encoder(x)                  # (batch, seq, d_model)
+        last_t = x[:, -1, :]                 # (batch, d_model)
+        out = self.head(last_t)              # (batch, output_size)
+        return out
