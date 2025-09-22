@@ -4,7 +4,7 @@ import torch.optim as optim
 import torch.onnx
 import pandas as pd
 from torch.utils.data import DataLoader
-from classes import VehicleSpeedDatasetLong, VehicleSpeedDatasetLongLat, SpeedEstimatorTransformer
+from classes import VehicleSpeedDatasetLong, VehicleSpeedDatasetLongLat, VehicleSpeedDatasetLat, SpeedEstimatorTransformer
 
 if __name__ == "__main__":
     # CUDA info
@@ -22,7 +22,8 @@ if __name__ == "__main__":
     extension = "*.csv"
 
     # Hyperparams grid from CSV
-    df = pd.read_csv("hyperparams.csv", delimiter=";")
+    hyperparams_loc = "../2_trained_models/Transformer/i7/it_1_norm/hyperparams_T_it_4.csv"
+    df = pd.read_csv(hyperparams_loc, delimiter=";")
     # Filter rows for Transformer if model_type column exists
     if "model_type" in df.columns:
         df = df[df["model_type"].astype(str).str.lower().str.contains("transformer")]
@@ -46,8 +47,8 @@ if __name__ == "__main__":
         return float(row[name]) if name in df.columns and not pd.isna(row[name]) else default
 
     # Output locations
-    location_state = "../2_trained_models/Transformer/trained_models/i7/it_1/state_models/lon/model_T_lon_"
-    location_traced = "../2_trained_models/Transformer/trained_models/i7/it_1/traced_models/lon/model_T_lon_"
+    location_state = "../2_trained_models/Transformer/i7/it_1_norm/state_models/lon/model_T_lon_"
+    location_traced = "../2_trained_models/Transformer/i7/it_1_norm/traced_models/lon/model_T_lon_"
     os.makedirs(os.path.dirname(location_state), exist_ok=True)
     os.makedirs(os.path.dirname(location_traced), exist_ok=True)
 
@@ -56,15 +57,15 @@ if __name__ == "__main__":
     num_models = len(df)
 
     for j in range(num_models):
-        row = df.iloc[j]
 
-        seq_len = int(row["sequence_size"])
-        d_model = int(row["hidden_size"])            # map hidden_size -> d_model
-        num_layers = int(row["num_of_layers"])       # map num_of_layers -> encoder layers
+        seq_len = int(df["sequence_size"][j])
+        d_model = int(df["d_model"][j])           # map hidden_size -> d_model
+        num_layers = int(df["num_of_layers"][j])       # map num_of_layers -> encoder layers
+        nhead = int(df["nhead"][j])
+        dim_ff = int(df["dim_ff"][j])
+        dropout = int(df["dropout"][j])
 
-        nhead = get_col(row, "nhead", 4)
-        dim_ff = get_col(row, "ffn_dim", 4 * d_model)
-        dropout = get_float(row, "dropout", 0.1)
+        id = int(df["ID"][j])
 
         print("-------------------------------------")
         print(f"Training has started for Transformer model {j} | seq={seq_len}, d_model={d_model}, layers={num_layers}, nhead={nhead}, ff={dim_ff}")
@@ -165,18 +166,18 @@ if __name__ == "__main__":
                     },
                     location_state + str(j) + ".pt",
                 )
-                print("model " + location_state + str(j) + ".pt" + " saved")
+                print("model " + location_state + str(id) + ".pt" + " saved")
 
                 # TorchScript trace
                 traced_model = torch.jit.trace(model.eval(), example_input)
                 torch.jit.save(traced_model, location_traced + str(j) + "_traced_jit_save.pt")
                 print("model " + location_traced + str(j) + "_traced_jit_save.pt" + " saved")
 
-                traced_model.save(location_traced + str(j) + "_traced_simple_save.pt")
-                print("model " + location_traced + str(j) + "_traced_simple_save.pt" + " saved")
+                traced_model.save(location_traced + str(id) + "_traced_simple_save.pt")
+                print("model " + location_traced + str(id) + "_traced_simple_save.pt" + " saved")
 
                 # ONNX export
-                onnx_model_path = location_traced + str(j) + "_traced.onnx"
+                onnx_model_path = location_traced + str(id) + "_traced.onnx"
                 torch.onnx.export(
                     model.eval(),
                     example_input,
@@ -190,7 +191,7 @@ if __name__ == "__main__":
                 )
                 print("model " + onnx_model_path + " saved")
                 print("---------------------")
-                print(f"all model_{j} saved")
+                print(f"all model_{id} saved")
             else:
                 early_stopping_counter += 1
                 print(f"Test loss has not improved; early stopping counter: {early_stopping_counter}")

@@ -28,7 +28,7 @@ if __name__ == '__main__':
     results_df = pd.DataFrame(columns=column_names)
 
     # Loading in the reference speeds
-    validation_data_loc = "../1_data/i7/it_1/it_1_100_norm/3_validation/"
+    validation_data_loc = "../1_data/i7/it_1_norm/it_1_100_norm/3_validation/"
     validation_files = [f for f in os.listdir(validation_data_loc) if f.endswith(".csv")]
 
     csv_save_loc = "../2_trained_models/LSTM/trained_models/i7/it_3_norm/results/lon/"
