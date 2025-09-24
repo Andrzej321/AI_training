@@ -63,8 +63,8 @@ if __name__ == "__main__":
         num_layers = int(df["num_of_layers"][j])       # map num_of_layers -> encoder layers
         nhead = int(df["nhead"][j])
         dim_ff = int(df["dim_ff"][j])
-        dropout = int(df["dropout"][j])
-
+        raw_dropout = df["dropout"][j]
+        dropout = float(raw_dropout) if pd.notna(raw_dropout) else 0.1
         id = int(df["ID"][j])
 
         print("-------------------------------------")
@@ -169,12 +169,13 @@ if __name__ == "__main__":
                 print("model " + location_state + str(id) + ".pt" + " saved")
 
                 # TorchScript trace
-                traced_model = torch.jit.trace(model.eval(), example_input)
-                torch.jit.save(traced_model, location_traced + str(j) + "_traced_jit_save.pt")
-                print("model " + location_traced + str(j) + "_traced_jit_save.pt" + " saved")
+                scripted = torch.jit.script(model.eval())
+                scripted = torch.jit.freeze(scripted)
+                torch.jit.save(scripted, location_traced + str(j) + "_scripted_jit_save.pt")
+                print("model " + location_traced + str(j) + "_scripted_jit_save.pt" + " saved")
 
-                traced_model.save(location_traced + str(id) + "_traced_simple_save.pt")
-                print("model " + location_traced + str(id) + "_traced_simple_save.pt" + " saved")
+                scripted.save(location_traced + str(id) + "_scripted_simple_save.pt")
+                print("model " + location_traced + str(id) + "_scripted_simple_save.pt" + " saved")
 
                 # ONNX export
                 onnx_model_path = location_traced + str(id) + "_traced.onnx"
@@ -183,7 +184,7 @@ if __name__ == "__main__":
                     example_input,
                     onnx_model_path,
                     export_params=True,
-                    opset_version=11,
+                    opset_version=14,
                     do_constant_folding=True,
                     input_names=["input"],
                     output_names=["output"],
