@@ -36,7 +36,7 @@ if __name__ == "__main__":
     learning_rate = 1e-4
     batch_size = 128
     step_size = 5             # sequence overlap during dataset extraction
-    num_epochs = 70
+    num_epochs = 100
     patience = 5
 
     # Optional Transformer params from CSV columns (fallback defaults used if missing)
@@ -164,7 +164,7 @@ if __name__ == "__main__":
                         "learning_rate": learning_rate,
                         "num_epochs": num_epochs,
                     },
-                    location_state + str(j) + ".pt",
+                    location_state + str(id) + ".pt",
                 )
                 print("model " + location_state + str(id) + ".pt" + " saved")
 

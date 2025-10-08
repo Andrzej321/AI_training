@@ -66,7 +66,7 @@ if __name__ == '__main__':
         criterion = nn.MSELoss()
         optimizer = optim.Adam(model.parameters(), lr=learning_rate)
 
-        example_input = torch.rand(1, df["sequence_size"][j], input_size).to(device)  # Example input matching model dimensions
+        example_input = torch.rand(1, df["sequence_size"][j], input_size, dtype = torch.float32).to(device)  # Example input matching model dimensions
 
         for epoch in range(num_epochs):
             model.train()
