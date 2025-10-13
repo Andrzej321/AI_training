@@ -3,6 +3,12 @@ import os, glob, pandas as pd
 from torch.utils.data import Dataset
 import numpy as np
 
+from typing import List, Optional
+
+from torch.nn.utils import weight_norm  # for TCN weight normalization
+
+from torch.nn.utils import weight_norm
+
 class SpeedEstimatorRNN(nn.Module):
     def __init__(self, input_size, hidden_size, num_layers, output_size=2):
         super(SpeedEstimatorRNN, self).__init__()
@@ -447,4 +453,270 @@ class SpeedEstimatorTransformer(nn.Module):
         x = self.encoder(x)                  # (batch, seq, d_model)
         last_t = x[:, -1, :]                 # (batch, d_model)
         out = self.head(last_t)              # (batch, output_size)
+        return out
+
+class Chomp1d(nn.Module):
+    """Crops the last 'chomp_size' timesteps to preserve causality when padding is used."""
+    def __init__(self, chomp_size: int):
+        super().__init__()
+        self.chomp_size = chomp_size
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        if self.chomp_size == 0:
+            return x
+        return x[:, :, :-self.chomp_size].contiguous()
+
+def make_activation(name: str):
+    name = name.lower()
+    if name == "leaky_relu":
+        return nn.LeakyReLU()
+    if name == "gelu":
+        return nn.GELU()
+    return nn.ReLU()
+
+def make_norm(norm: str, num_channels: int):
+    norm = norm.lower()
+    if norm == "batch":
+        return nn.BatchNorm1d(num_channels)
+    if norm == "layer":
+        # Approximate LayerNorm across channels with GroupNorm(1, C)
+        return nn.GroupNorm(1, num_channels)
+    return nn.Identity()
+
+class TemporalBlock(nn.Module):
+    """
+    Residual TCN block with N causal/non-causal Conv1d layers.
+    Each conv in the block uses the same dilation factor (standard TCN design).
+    """
+    def __init__(
+        self,
+        in_channels: int,
+        out_channels: int,
+        kernel_size: int,
+        dilation: int,
+        convolutions_per_block: int = 2,
+        dropout: float = 0.1,
+        use_weight_norm: bool = True,
+        activation: str = "relu",
+        norm_in_block: str = "none",
+        causal: bool = True,
+    ):
+        super().__init__()
+        act = make_activation(activation)
+        norm_ctor = lambda c: make_norm(norm_in_block, c)
+
+        layers = []
+        current_in = in_channels
+        for _ in range(max(1, convolutions_per_block)):
+            # Padding for causal or "same" non-causal
+            if causal:
+                padding = (kernel_size - 1) * dilation
+                chomp = Chomp1d(padding)
+            else:
+                padding = ((kernel_size - 1) * dilation) // 2
+                chomp = nn.Identity()
+
+            conv = nn.Conv1d(current_in, out_channels, kernel_size, padding=padding, dilation=dilation)
+            if use_weight_norm:
+                conv = weight_norm(conv)
+
+            layers.extend([
+                conv,
+                chomp,
+                norm_ctor(out_channels),
+                act,
+                nn.Dropout(dropout),
+            ])
+            current_in = out_channels
+
+        self.net = nn.Sequential(*layers)
+
+        self.downsample = None
+        if in_channels != out_channels:
+            self.downsample = nn.Conv1d(in_channels, out_channels, kernel_size=1)
+
+        self.activation = make_activation(activation)
+
+        # He init for convs
+        for m in self.modules():
+            if isinstance(m, nn.Conv1d):
+                nn.init.kaiming_normal_(m.weight)
+                if m.bias is not None:
+                    nn.init.zeros_(m.bias)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        out = self.net(x)
+        res = x if self.downsample is None else self.downsample(x)
+        return self.activation(out + res)
+
+class TemporalConvNet(nn.Module):
+    """
+    Stack of TemporalBlocks with user-defined channels and dilation schedule.
+    """
+    def __init__(
+        self,
+        in_channels: int,
+        channels_per_layer: List[int],
+        kernel_size: int,
+        dilation_schedule: List[int],
+        convolutions_per_block: int = 2,
+        dropout: float = 0.1,
+        use_weight_norm: bool = True,
+        activation: str = "relu",
+        norm_in_block: str = "none",
+        causal: bool = True,
+    ):
+        super().__init__()
+        assert len(channels_per_layer) >= 1, "channels_per_layer must be a non-empty list"
+        assert len(dilation_schedule) >= 1, "dilation_schedule must be a non-empty list"
+
+        layers = []
+        c_in = in_channels
+        L = len(channels_per_layer)
+        for i in range(L):
+            d = dilation_schedule[i] if i < len(dilation_schedule) else dilation_schedule[-1]
+            c_out = channels_per_layer[i]
+            layers.append(
+                TemporalBlock(
+                    c_in,
+                    c_out,
+                    kernel_size=kernel_size,
+                    dilation=d,
+                    convolutions_per_block=convolutions_per_block,
+                    dropout=dropout,
+                    use_weight_norm=use_weight_norm,
+                    activation=activation,
+                    norm_in_block=norm_in_block,
+                    causal=causal,
+                )
+            )
+            c_in = c_out
+
+        self.network = nn.Sequential(*layers)
+        self.out_channels = channels_per_layer[-1]
+
+    def forward(self, x_b_l_c: torch.Tensor) -> torch.Tensor:
+        # Accept [B, L, C] -> transpose to [B, C, L] for Conv1d
+        x = x_b_l_c.transpose(1, 2)
+        y = self.network(x)  # [B, C_out, L]
+        return y.transpose(1, 2)  # back to [B, L, C_out]
+
+class SpeedEstimatorTCN(nn.Module):
+    """
+    TCN-based speed estimator (sequence-to-one for current speed).
+    Flexible constructor:
+      - Use channels_per_layer + dilation_schedule + num_residual_blocks + convolutions_per_block (preferred)
+      - Or provide hidden_size + num_layers (compat with your other classes); this expands to a uniform channels list and exponential dilations.
+    Reads last timestep by default (head_pooling='last'), or global average if head_pooling='global_avg'.
+    """
+    def __init__(
+        self,
+        input_size: int,
+        output_size: int = 1,
+        # New preferred knobs:
+        channels_per_layer: Optional[List[int]] = None,
+        num_residual_blocks: Optional[int] = None,
+        convolutions_per_block: int = 2,
+        kernel_size: int = 3,
+        dilation_schedule: Optional[List[int]] = None,
+        # Back-compat knobs (optional):
+        hidden_size: Optional[int] = None,
+        num_layers: Optional[int] = None,
+        # Regularization/behavior:
+        dropout: float = 0.1,
+        use_weight_norm: bool = True,
+        activation: str = "relu",
+        norm_in_block: str = "none",
+        head_pooling: str = "last",  # 'last' | 'global_avg'
+        causal: bool = True,
+        output_clamp_min: Optional[float] = None,
+    ):
+        super().__init__()
+        # Derive channels_per_layer and dilation_schedule if not fully specified
+        if channels_per_layer is None:
+            nl = num_residual_blocks if num_residual_blocks is not None else (num_layers if num_layers is not None else 4)
+            hs = hidden_size if hidden_size is not None else 64
+            channels_per_layer = [hs] * nl
+        if dilation_schedule is None:
+            dilation_schedule = [2 ** i for i in range(len(channels_per_layer))]
+
+        self.tcn = TemporalConvNet(
+            in_channels=input_size,
+            channels_per_layer=channels_per_layer,
+            kernel_size=kernel_size,
+            dilation_schedule=dilation_schedule,
+            convolutions_per_block=convolutions_per_block,
+            dropout=dropout,
+            use_weight_norm=use_weight_norm,
+            activation=activation,
+            norm_in_block=norm_in_block,
+            causal=causal,
+        )
+        self.head_pooling = head_pooling.lower()
+        self.output_clamp_min = output_clamp_min
+        self.head = nn.Linear(self.tcn.out_channels, output_size)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        # x: (batch, seq_len, input_size); allow (batch, input_size) by adding a seq dim
+        if x.dim() == 2:
+            x = x.unsqueeze(1)
+        feats = self.tcn(x)  # [B, L, C_tcn]
+        if self.head_pooling == "global_avg":
+            pooled = feats.mean(dim=1)  # [B, C_tcn]
+        else:
+            pooled = feats[:, -1, :]     # last timestep [B, C_tcn]
+        out = self.head(pooled)          # [B, output_size]
+        if self.output_clamp_min is not None:
+            out = torch.clamp(out, min=self.output_clamp_min)
+        return out
+
+class SpeedEstimatorTCNModified(nn.Module):
+    """
+    Sequence-to-sequence TCN: returns per-timestep predictions [B, L, output_size].
+    Include only if you need per-timestep supervision. Not used for "current speed".
+    """
+    def __init__(
+        self,
+        input_size: int,
+        output_size: int = 1,
+        channels_per_layer: Optional[List[int]] = None,
+        num_residual_blocks: Optional[int] = None,
+        convolutions_per_block: int = 2,
+        kernel_size: int = 3,
+        dilation_schedule: Optional[List[int]] = None,
+        hidden_size: Optional[int] = None,
+        num_layers: Optional[int] = None,
+        dropout: float = 0.1,
+        use_weight_norm: bool = True,
+        activation: str = "relu",
+        norm_in_block: str = "none",
+        causal: bool = True,
+    ):
+        super().__init__()
+        if channels_per_layer is None:
+            nl = num_residual_blocks if num_residual_blocks is not None else (num_layers if num_layers is not None else 4)
+            hs = hidden_size if hidden_size is not None else 64
+            channels_per_layer = [hs] * nl
+        if dilation_schedule is None:
+            dilation_schedule = [2 ** i for i in range(len(channels_per_layer))]
+
+        self.tcn = TemporalConvNet(
+            in_channels=input_size,
+            channels_per_layer=channels_per_layer,
+            kernel_size=kernel_size,
+            dilation_schedule=dilation_schedule,
+            convolutions_per_block=convolutions_per_block,
+            dropout=dropout,
+            use_weight_norm=use_weight_norm,
+            activation=activation,
+            norm_in_block=norm_in_block,
+            causal=causal,
+        )
+        self.head = nn.Linear(self.tcn.out_channels, output_size)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        if x.dim() == 2:
+            x = x.unsqueeze(1)
+        feats = self.tcn(x)          # [B, L, C_tcn]
+        out = self.head(feats)       # [B, L, output_size]
         return out
