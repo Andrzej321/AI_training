@@ -76,7 +76,7 @@ if __name__ == "__main__":
     default_loss = "mse"          # mse | smooth_l1 | mae
     default_grad_clip = 1.0
     default_batch_size = 128
-    default_epochs = 70
+    default_epochs = 100
     patience = 5
     min_delta = 0.0  # improvement threshold for early stopping
     default_seed = 42
