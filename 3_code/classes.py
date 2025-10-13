@@ -7,8 +7,6 @@ from typing import List, Optional
 
 from torch.nn.utils import weight_norm  # for TCN weight normalization
 
-from torch.nn.utils import weight_norm
-
 class SpeedEstimatorRNN(nn.Module):
     def __init__(self, input_size, hidden_size, num_layers, output_size=2):
         super(SpeedEstimatorRNN, self).__init__()

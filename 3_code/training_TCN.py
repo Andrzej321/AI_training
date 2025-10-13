@@ -62,10 +62,10 @@ if __name__ == "__main__":
     extension = "*.csv"
 
     # Load hyperparameters table (semicolon-delimited to match your other trainers)
-    df = pd.read_csv("hyperparams.csv", delimiter=";")
+    df = pd.read_csv("../2_trained_models/TCN/i7/it_1_norm/hyperparams_TCN_it_1.csv", delimiter=";")
 
     # Fixed or defaults (as per your instruction)
-    fixed_input_size = 1     # All created models have 1 input
+    fixed_input_size = 12     # All created models have 1 input
     fixed_dropout = 0.1      # Dropout fixed
     fixed_step_size = 5      # Dataset sliding window stride
 
@@ -90,8 +90,8 @@ if __name__ == "__main__":
     default_output_clamp_min = None   # e.g., 0.0 to enforce non-negative speeds
 
     # Output locations
-    location_state_TCN = "../2_trained_models/TCN/trained_models/i7/it_3/state_models/lon/model_TCN_lon_"
-    location_traced_TCN = "../2_trained_models/TCN/trained_models/i7/it_3/traced_models/lon/model_TCN_lon_"
+    location_state_TCN = "../2_trained_models/TCN/trained_models/i7/it_1_norm/state_models/lon/model_TCN_lon_"
+    location_traced_TCN = "../2_trained_models/TCN/trained_models/i7/it_1_norm/traced_models/lon/model_TCN_lon_"
 
     num_models = len(df.index)
 
