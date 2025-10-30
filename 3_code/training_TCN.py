@@ -98,8 +98,6 @@ if __name__ == "__main__":
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     for j in range(num_models):
-        print("-------------------------------------")
-        print(f"Training has started for TCN model row {j}")
 
         # Required core knobs you selected
         sequence_length = int(df["sequence_size"][j]) if "sequence_size" in df.columns else int(df["sequence_length"][j])
@@ -142,6 +140,10 @@ if __name__ == "__main__":
         batch_size = int(df["batch_size"][j]) if "batch_size" in df.columns else default_batch_size
         num_epochs = int(df["epochs"][j]) if "epochs" in df.columns else default_epochs
         seed = int(df["seed"][j]) if "seed" in df.columns else default_seed
+        id = int(df["ID"][j])
+
+        print("-------------------------------------")
+        print(f"Training has started for TCN model row {id}")
 
         # Seed everything
         torch.manual_seed(seed)
@@ -223,7 +225,7 @@ if __name__ == "__main__":
                 total_train_loss += loss.item()
 
             avg_train_loss = total_train_loss / max(1, len(train_dataloader))
-            print(f"Model: {j}, Epoch [{epoch + 1}/{num_epochs}], Train Loss: {avg_train_loss:.6f}")
+            print(f"Model: {id}, Epoch [{epoch + 1}/{num_epochs}], Train Loss: {avg_train_loss:.6f}")
 
             # Evaluate on test
             model.eval()
@@ -284,16 +286,16 @@ if __name__ == "__main__":
 
                 # TorchScript
                 traced_model = torch.jit.trace(model, example_input)
-                traced_jit_path = location_traced_TCN + str(j) + "_traced_jit_save.pt"
+                traced_jit_path = location_traced_TCN + str(id) + "_traced_jit_save.pt"
                 torch.jit.save(traced_model, traced_jit_path)
                 print("model " + traced_jit_path + " saved")
 
-                traced_simple_path = location_traced_TCN + str(j) + "_traced_simple_save.pt"
+                traced_simple_path = location_traced_TCN + str(id) + "_traced_simple_save.pt"
                 traced_model.save(traced_simple_path)
                 print("model " + traced_simple_path + " saved")
 
                 # ONNX
-                onnx_model_path = location_traced_TCN + str(j) + "_traced.onnx"
+                onnx_model_path = location_traced_TCN + str(id) + "_traced.onnx"
                 torch.onnx.export(
                     model,
                     example_input,
@@ -307,7 +309,7 @@ if __name__ == "__main__":
                 )
                 print("model " + onnx_model_path + " saved")
                 print("---------------------")
-                print(f"all model_{j} artifacts saved")
+                print(f"all model_{id} artifacts saved")
             else:
                 early_stopping_counter += 1
                 print(f"Test loss has not improved; early stopping counter: {early_stopping_counter}")
