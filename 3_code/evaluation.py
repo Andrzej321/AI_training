@@ -28,13 +28,13 @@ if __name__ == '__main__':
     #For the model-specific results
     for model_it in range(num_of_models):
 
-        rmse_sum = 0
-        mae_sum = 0
-        pwt_1_abs_sum = 0
-        pwt_2_abs_sum = 0
-        pwt_1_rel_sum = 0
-        pwt_2_rel_sum = 0
-        max_err_sum = 0
+        rmse_sum = 0 # Root Mean Square Error
+        mae_sum = 0 # Maximum Absolute Error
+        pwt_1_abs_sum = 0 # Percentage with Tolerance 1 Absolute Summed
+        pwt_2_abs_sum = 0 # Percentage with Tolerance 1 Relative Summed
+        pwt_1_rel_sum = 0 # Percentage with Tolerance 2 Absolute Summed
+        pwt_2_rel_sum = 0 # Percentage with Tolerance 2 Relative Summed
+        max_err_sum = 0 # Maximum Error Summed
 
         for meas_it in range(num_of_meas_files):
 
