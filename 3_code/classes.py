@@ -86,8 +86,6 @@ class SpeedEstimatorGRU(nn.Module):
         out, _ = self.gru(x, h0)
         out = self.fc(out[:, -1, :])  # out will now have shape (batch_size, 2)
 
-        out = torch.sigmoid(out) * 100
-
         return out
 
 class SpeedEstimatorGRUModified(nn.Module):
