@@ -4,10 +4,10 @@ import os
 
 if __name__ == '__main__':
 
-    model_type = "Transformer"
-    iteration_num = "1_norm"
+    model_type = "LSTM"
+    iteration_num = "3_norm"
 
-    base_loc = f"../2_trained_models/{model_type}/i7/it_{iteration_num}/"
+    base_loc = f"../2_trained_models/{model_type}/trained_models/i7/it_{iteration_num}/"
 
     #Reading in the num of models and model locations
     model_folder_loc = os.path.join(base_loc, "state_models", "lon")

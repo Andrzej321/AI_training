@@ -189,14 +189,14 @@ def sliding_window_predict(
 
 if __name__ == "__main__":
     # ========= User-editable controls =========
-    model_type = "Transformer"          # "TCN" | "RNN" | "LSTM" | "GRU" | "Transformer"
+    model_type = "LSTM"          # "TCN" | "RNN" | "LSTM" | "GRU" | "Transformer"
     task = "lon"                # subdir for models/results; e.g., "lon", "lat", or "both"
-    iteration_num = "1_norm"           # iteration number
+    iteration_num = "3_norm"           # iteration number
     car_model = "i7"
 
     # Data and model locations
     validation_data_loc = f"../1_data/{car_model}/it_1/it_1_100_norm/3_validation/"
-    base_model_dir = f"../2_trained_models/{model_type}/{car_model}/it_{iteration_num}/"
+    base_model_dir = f"../2_trained_models/{model_type}/trained_models/{car_model}/it_{iteration_num}/"
     model_folder_loc = os.path.join(base_model_dir, "state_models", task)
     csv_save_loc = os.path.join(base_model_dir, "results", task)
     os.makedirs(csv_save_loc, exist_ok=True)
@@ -242,7 +242,7 @@ if __name__ == "__main__":
         for pt in pt_files:
             checkpoint_path = os.path.join(model_folder_loc, pt)
             # Load checkpoint (weights_only may not exist in older torch)
-            checkpoint = torch.load(checkpoint_path, map_location=device)
+            checkpoint = torch.load(checkpoint_path, map_location=device, weights_only=False)
 
             # Build model from checkpoint
             model, seq_len, step_size, output_size = build_model_from_checkpoint(
