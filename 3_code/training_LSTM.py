@@ -28,7 +28,6 @@ if __name__ == '__main__':
     learning_rate = 0.0001
     # num of sequences in one batch
     batch_size = 128
-    dropout_rate = 0.2
 
 
     # parameters of the simulation
@@ -62,7 +61,7 @@ if __name__ == '__main__':
 
         # Initialize model, loss function, and optimizer
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        model = SpeedEstimatorLSTM(input_size, int(df["hidden_size"][j]), int(df["num_of_layers"][j]), output_size).to(device)
+        model = SpeedEstimatorLSTM(input_size, int(df["hidden_size"][j]), int(df["num_of_layers"][j]), output_size, int(df["dropout_rate"][j])).to(device)
         criterion = nn.MSELoss()
         optimizer = optim.Adam(model.parameters(), lr=learning_rate)
 
