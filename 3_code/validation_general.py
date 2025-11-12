@@ -189,9 +189,9 @@ def sliding_window_predict(
 
 if __name__ == "__main__":
     # ========= User-editable controls =========
-    model_type = "LSTM"          # "TCN" | "RNN" | "LSTM" | "GRU" | "Transformer"
+    model_type = "GRU"          # "TCN" | "RNN" | "LSTM" | "GRU" | "Transformer"
     task = "lon"                # subdir for models/results; e.g., "lon", "lat", or "both"
-    iteration_num = "3_norm"           # iteration number
+    iteration_num = "5_norm"           # iteration number
     car_model = "i7"
 
     # Data and model locations
