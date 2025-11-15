@@ -55,7 +55,6 @@ class VehicleSpeedDatasetLongCached(Dataset):
             feats_df = df.drop(columns=to_drop, errors="ignore")
 
             # Extract features: everything except target column
-            # Keep column order stable: drop target afterwards if present
             if self.target_column in feats_df.columns:
                 feats_df = feats_df.drop(columns=[self.target_column])
 
@@ -94,8 +93,7 @@ class VehicleSpeedDatasetLongCached(Dataset):
         y = targ[end - 1]             # last step target
 
         # Convert to torch tensors
-        # Model expects batch_first=True => [B, T, F]; DataLoader will add batch dim
-        x_tensor = torch.from_numpy(window)              # [T, F], float32
-        y_tensor = torch.tensor([y], dtype=x_tensor.dtype)  # [1]
+        x_tensor = torch.from_numpy(window)                   # [T, F], float32
+        y_tensor = torch.tensor([y], dtype=x_tensor.dtype)    # [1]
 
         return x_tensor, y_tensor
