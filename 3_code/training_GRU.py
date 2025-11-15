@@ -27,7 +27,7 @@ if __name__ == '__main__':
     input_size = 12  # Number of CAN signals per timestep
     learning_rate = 0.0001
     # num of sequences in one batch
-    batch_size = 12
+    batch_size = 128
 
 
     # parameters of the simulation
