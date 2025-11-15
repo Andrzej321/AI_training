@@ -20,11 +20,6 @@ end
 assert(isequal(size(X,1), inputSize) && isequal(size(X,2), seqLen), ...
     'Input X must be [%d x %d] (features x seqLen).', inputSize, seqLen);
 
-% Convert numeric matrix to cell sequence if network expects sequence cell:
-if isa(net,'DAGNetwork') || isa(net,'SeriesNetwork')
-    % If sequenceInputLayer used, it accepts (features x time) directly.
-    y = predict(net, X);
-else
-    error('Unexpected network type.');
-end
+% Series/DAG network accepts (features x time) directly for sequenceInputLayer
+y = predict(net, X);
 end

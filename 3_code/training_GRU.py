@@ -22,18 +22,18 @@ if __name__ == '__main__':
     test_data_path = "../1_data/i7/it_1/it_1_100_norm/2_testing"
 
     # Hyperparameters that will alter throughout the model creations
-    df = pd.read_csv("../2_trained_models/GRU/trained_models/i7/it_5_norm/hyperparams_LSTM_it_5.csv", delimiter=";")
+    df = pd.read_csv("../2_trained_models/GRU/trained_models/i7/it_5_norm/hyperparams_GRU_it_5.csv", delimiter=";")
 
     input_size = 12  # Number of CAN signals per timestep
     learning_rate = 0.0001
     # num of sequences in one batch
-    batch_size = 12
+    batch_size = 128
 
 
     # parameters of the simulation
     step_size = 5 # what the overlap between the sequences should look like in the extracted dataset
     output_size = 1
-    num_epochs = 70
+    num_epochs = 100
     num_models = len(df["model_type"])
 
     location_state_GRU = "../2_trained_models/GRU/trained_models/i7/it_4/state_models/lon/model_GRU_lon_"

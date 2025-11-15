@@ -7,37 +7,37 @@
 % Feature selection supported (keep/drop or input_id mapping).
 %
 % Output:
-%   - trainedGRU_best.mat (best validation model)
+%   - trainedGRU_best.mat (best validation model: assembled DAG/Series with regression layer)
 %   - trainedGRU_history.mat (loss curves + config)
 %
-% Author: (Your Name)
+% Author: (Andrzej Skrodzki)
 
 clear; clc;
 
 %% ================= USER CONFIG =================
-seqLen     = 100;     % sequence length
+seqLen     = 50;      % sequence length
 hiddenSize = 128;     % GRU hidden size
 numLayers  = 2;       % number of GRU layers
 
-maxEpochs      = 40;
-miniBatchSize  = 64;
-initialLR      = 1e-3;
-patience       = 8;        % set Inf to disable early stopping
+maxEpochs      = 100;
+miniBatchSize  = 12;
+initialLR      = 1e-5;
+patience       = 5;        % set Inf to disable early stopping
 gradientClip   = 5.0;
 
-trainDir = "../data/train";
-valDir   = "../data/val";
+trainDir = "C:\my files\thesis\AI_training\1_data\i7\it_1\it_1_100\1_training";
+valDir   = "C:\my files\thesis\AI_training\1_data\i7\it_1\it_1_100\2_testing";
 stepSize = 5;              % sliding window stride
 
 featureSelectionMode = "keep";   % "keep" | "drop" | "none"
-selectedFeatureCols  = [1 2 3 5 7 9];  % EDIT to match Python subset
+selectedFeatureCols  = [1, 2, 6, 7, 8, 9, 10, 11, 13, 15 ,17, 19];  % EDIT to match Python subset
 dropFeatureCols      = [];
 
 useInputIdMapping = false;
 input_id = 2;     % only used if useInputIdMapping=true
 
-saveBestPath    = "trainedGRU_best.mat";
-saveHistoryPath = "trainedGRU_history.mat";
+saveBestPath    = "C:\my files\thesis\AI_training\3_code\training_in_matlab\trained_models\GRU\trainedGRU_best.mat";
+saveHistoryPath = "C:\my files\thesis\AI_training\3_code\training_in_matlab\trained_models\GRU\trainedGRU_history.mat";
 
 rng(42);  % reproducibility
 %% ===============================================
@@ -70,7 +70,7 @@ for L = 1:numLayers
 end
 layers(end+1) = fullyConnectedLayer(1,"Name","fc"); %#ok<AGROW>
 
-% regressionLayer removed because we do manual loss
+% Note: No regressionLayer in the training dlnetwork graph (we compute loss manually).
 lg = layerGraph(layers);
 dlnet = dlnetwork(lg);
 
@@ -82,16 +82,16 @@ earlyStopCounter = 0;
 trainLossHistory = zeros(maxEpochs,1);
 valLossHistory   = zeros(maxEpochs,1);
 
-% Adam accumulators
-avgGrad      = [];
-avgSqGrad    = [];
+% Adam accumulators (managed by built-in adamupdate)
+avgGrad   = [];
+avgSqGrad = [];
 beta1 = 0.9;
 beta2 = 0.999;
-eps   = 1e-8;
 
 %% Mini-batch index preparation
 numTrainSeq = numel(XTrain);
 numValSeq   = numel(XVal);
+iteration   = 0;  % increments per mini-batch
 
 fprintf("Starting training...\n");
 for epoch = 1:maxEpochs
@@ -103,23 +103,22 @@ for epoch = 1:maxEpochs
 
     for startIdx = 1:miniBatchSize:numTrainSeq
         batchIdx = order(startIdx:min(startIdx+miniBatchSize-1, numTrainSeq));
+        iteration = iteration + 1;
 
-        % Prepare batch: pack sequences into cell -> convert to dlarray manually
+        % Prepare batch: (F x T) → dlarray 'CTB'; targets row vector [1 x B]
         [dlX, dlY] = makeBatch(XTrain(batchIdx), YTrain(batchIdx));
 
         % Forward + gradients
-        [gradients, batchLoss] = dlfeval(@modelGradients, dlnet, dlX, dlY);
-        batchLossVal = double(batchLoss);
-        epochTrainLoss = epochTrainLoss + batchLossVal;
-        numTrainBatches = numTrainBatches + 1;
+        [gradients, lossValue] = dlfeval(@modelGradients, dlnet, dlX, dlY);
+        epochTrainLoss   = epochTrainLoss + double(lossValue);
+        numTrainBatches  = numTrainBatches + 1;
 
-        % Gradient clipping
+        % Gradient clipping across gradients table
         gradients = dlupdate(@(g) clipGrad(g, gradientClip), gradients);
 
-        % Adam update
-        [dlnet, avgGrad, avgSqGrad] = adamStep(dlnet, gradients, avgGrad, avgSqGrad, ...
-                                               beta1, beta2, eps, initialLR, epoch);
-
+        % Built-in Adam update (no manual table indexing)
+        [dlnet, avgGrad, avgSqGrad] = adamupdate( ...
+            dlnet, gradients, avgGrad, avgSqGrad, iteration, initialLR, beta1, beta2);
     end
 
     avgTrainLoss = epochTrainLoss / max(1,numTrainBatches);
@@ -131,9 +130,8 @@ for epoch = 1:maxEpochs
     for startIdx = 1:miniBatchSize:numValSeq
         batchIdx = startIdx:min(startIdx+miniBatchSize-1, numValSeq);
         [dlXv, dlYv] = makeBatch(XVal(batchIdx), YVal(batchIdx));
-        dlOutVal = forward(dlnet, dlXv);
-        % dlOutVal: [1 x batch]
-        lossVal = mse(dlOutVal, dlYv');  % target shape adapt
+        dlOutVal = forward(dlnet, dlXv);   % [1 x B]
+        lossVal = mse(dlOutVal, dlYv);     % both are [1 x B]
         valLossAccum = valLossAccum + double(lossVal);
         valBatches = valBatches + 1;
     end
@@ -148,7 +146,9 @@ for epoch = 1:maxEpochs
         bestEpoch   = epoch;
         earlyStopCounter = 0;
 
-        netBest = assembleNetwork(layerGraph(dlnet)); %#ok<NASGU>
+        % Convert dlnet to a valid assembled network for prediction/codegen by
+        % adding a regression layer connected to 'fc' only at save time.
+        netBest = assembleForSave(dlnet); %#ok<NASGU>
         save(saveBestPath, 'netBest', 'seqLen', 'inputSize', 'hiddenSize', 'numLayers', ...
             'bestValLoss', 'bestEpoch');
         fprintf("  >> Improved. Saved best model to %s\n", saveBestPath);
@@ -170,6 +170,19 @@ fprintf("History saved to %s\n", saveHistoryPath);
 
 %% ============== Helper Functions ==============
 
+function netOut = assembleForSave(dlnet)
+    % Create a copy of the current graph, add a regression layer, connect fc->regression,
+    % and assemble to a DAG/Series network suitable for predict and codegen.
+    lgSave = layerGraph(dlnet);
+    hasReg = any(strcmp({lgSave.Layers.Name}, 'regression'));
+    if ~hasReg
+        reg = regressionLayer('Name','regression');
+        lgSave = addLayers(lgSave, reg);
+        lgSave = connectLayers(lgSave, 'fc', 'regression');
+    end
+    netOut = assembleNetwork(lgSave);
+end
+
 function [dlX, dlY] = makeBatch(XCell, YVec)
 % XCell: cell array of sequences (F x T)
 % YVec: numeric vector (batch x 1)
@@ -181,14 +194,14 @@ function [dlX, dlY] = makeBatch(XCell, YVec)
         Xi = XCell{i};
         X(:,:,i) = single(Xi);
     end
-    dlX = dlarray(X, 'CTB'); % C=features, T=time, B=batch
-    dlY = dlarray(single(YVec(:)')); % row vector for comparison
+    dlX = dlarray(X, 'CTB');           % C=features, T=time, B=batch
+    dlY = dlarray(single(YVec(:)'));   % row vector [1 x B]
 end
 
 function [gradients, loss] = modelGradients(dlnet, dlX, dlYrow)
     % Forward
     dlOut = forward(dlnet, dlX); % [1 x batch]
-    % Ensure shapes align: dlOut is [1 x B], dlYrow is [1 x B]
+    % Ensure shapes align: both [1 x B]
     loss = mse(dlOut, dlYrow);
     gradients = dlgradient(loss, dlnet.Learnables);
 end
@@ -197,33 +210,7 @@ function g = clipGrad(g, clipVal)
     if isempty(g); return; end
     n = sqrt(sum(g(:).^2));
     if n > clipVal
-        g = g * (clipVal / n);
-    end
-end
-
-function [dlnet, avgGrad, avgSqGrad] = adamStep(dlnet, gradients, avgGrad, avgSqGrad, ...
-                                               beta1, beta2, eps, lr, t)
-    if isempty(avgGrad)
-        avgGrad   = cell(size(gradients));
-        avgSqGrad = cell(size(gradients));
-        for i = 1:numel(gradients)
-            avgGrad{i}   = zeros(size(gradients{i}.Value),'like',gradients{i}.Value);
-            avgSqGrad{i} = zeros(size(gradients{i}.Value),'like',gradients{i}.Value);
-        end
-    end
-    for i = 1:numel(gradients)
-        g = gradients{i}.Value;
-        avgGrad{i}   = beta1 * avgGrad{i}   + (1-beta1) * g;
-        avgSqGrad{i} = beta2 * avgSqGrad{i} + (1-beta2) * (g.^2);
-
-        % bias correction
-        avgGradHat   = avgGrad{i}   / (1 - beta1^t);
-        avgSqGradHat = avgSqGrad{i} / (1 - beta2^t);
-
-        update = lr * avgGradHat ./ (sqrt(avgSqGradHat) + eps);
-        paramName = gradients{i}.Name;
-        paramVal  = dlnet.Learnables.Value{i} - update;
-        dlnet = setLearnableParameterValue(dlnet, paramName, paramVal);
+        g = g * (clipVal / max(n, eps('like',g)));
     end
 end
 
@@ -260,7 +247,7 @@ function [XCell, YVec, F] = loadDirAsSequences(dirPath, seqLen, stepSize, ...
     end
     assert(~isempty(XCell), "No sequences produced from %s", dirPath);
 
-    % Convert targets to numeric
+    % Convert targets to numeric and remove non-finite
     YVec = YRaw;
     mask = isfinite(YVec);
     if ~all(mask)
