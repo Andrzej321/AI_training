@@ -61,14 +61,15 @@ def main():
     test_data_path     = "../1_data/i7/it_1/it_1_100_norm/2_testing"
     hyperparams_csv    = "../2_trained_models/TCN/i7/it_2_norm/hyperparams_TCN_it_2.csv"
 
-    # Output locations (prefixes)
+    # Output locations
     location_state_TCN  = "../2_trained_models/TCN/i7/it_2_norm/state_models/lon/model_TCN_lon_"
-    location_traced_TCN = "../2_trained_models/TCN/i7/it_2_norm/traced_models/lon/model_TCN_lon_"
+    location_traced_TCN = "../2_trained_models/TCN/i7/it_3_norm/traced_models/lon/model_TCN_lon_"
+
     os.makedirs(os.path.dirname(location_state_TCN), exist_ok=True)
     os.makedirs(os.path.dirname(location_traced_TCN), exist_ok=True)
 
     # -------------------- Fixed / defaults --------------------
-    fixed_input_size   = 12
+    fixed_input_size   = 12       # expected input feature size after dropping columns
     fixed_dropout      = 0.1
     fixed_step_size    = 5
 
@@ -83,11 +84,11 @@ def main():
     min_delta             = 0.0
     default_seed          = 42
 
-    # Model behavior defaults
+    # Model behavior/stability defaults
     default_use_weight_norm = True
-    default_activation      = "relu"
-    default_norm_in_block   = "none"
-    default_head_pooling    = "last"
+    default_activation      = "relu"       # relu | leaky_relu | gelu
+    default_norm_in_block   = "none"       # none | batch | layer
+    default_head_pooling    = "last"       # last | global_avg
     default_causal          = True
     default_output_clamp_min = None
 
@@ -97,10 +98,6 @@ def main():
     persistent_workers    = True
     prefetch_factor       = 4
     use_amp               = True  # mixed precision
-
-    # -------------------- Export knobs --------------------
-    export_onnx = True
-    onnx_opset  = 11
 
     # -------------------- Dataset column behavior --------------------
     target_column = "veh_u"
@@ -120,7 +117,9 @@ def main():
     # -------------------- Read hyperparameters table --------------------
     print(f"Reading hyperparameters from {hyperparams_csv}")
     df = pd.read_csv(hyperparams_csv, delimiter=";")
+    num_rows = len(df.index)
 
+    # Normalized column mapping (case-insensitive)
     cols_lc = {c.lower(): c for c in df.columns}
     def get_col(name: str) -> Optional[str]:
         return cols_lc.get(name.lower(), None)
@@ -159,13 +158,16 @@ def main():
         channels_per_layer = parse_list_cell(row[col_channels_per_layer]) if col_channels_per_layer else None
         dilation_schedule  = parse_list_cell(row[col_dilation_schedule]) if col_dilation_schedule else None
 
+        # Fallback to hidden_size replication if channels_per_layer is absent
         if channels_per_layer is None:
             hidden_size = int(row[col_hidden_size]) if col_hidden_size else 64
             channels_per_layer = [hidden_size] * num_residual_blocks
 
+        # Fallback dilation schedule to exponential
         if dilation_schedule is None:
             dilation_schedule = [2 ** i for i in range(num_residual_blocks)]
 
+        # Behavioral knobs
         use_weight_norm = to_bool(row[col_use_weight_norm], default_use_weight_norm) if col_use_weight_norm else default_use_weight_norm
         activation      = str(row[col_activation]).lower() if col_activation and isinstance(row[col_activation], str) else default_activation
         norm_in_block   = str(row[col_norm_in_block]).lower() if col_norm_in_block and isinstance(row[col_norm_in_block], str) else default_norm_in_block
@@ -181,6 +183,7 @@ def main():
                 except Exception:
                     output_clamp_min = default_output_clamp_min
 
+        # Training hyperparams
         learning_rate = float(row[col_learning_rate]) if col_learning_rate else default_learning_rate
         weight_decay  = float(row[col_weight_decay]) if col_weight_decay else default_weight_decay
         optimizer_name = str(row[col_optimizer]).lower() if col_optimizer else default_optimizer
@@ -202,7 +205,7 @@ def main():
         if device.type == "cuda":
             torch.cuda.manual_seed_all(seed)
 
-        # -------------------- Cached datasets --------------------
+        # -------------------- Build cached datasets --------------------
         train_dataset = VehicleSpeedDatasetLongCached(
             training_data_path,
             extension="*.csv",
@@ -250,7 +253,7 @@ def main():
             _fx, _fy = next(iter(train_loader))
             print(f"Sample batch -> X:{_fx.shape} y:{_fy.shape}")
         except Exception as e:
-            print("DataLoader multiprocessing failed; falling back to num_workers=0.")
+            print("DataLoader failed with multiprocessing; falling back to num_workers=0.")
             print(f"Original exception: {e}")
             requested_num_workers = 0
             train_loader = make_loader(train_dataset, is_train=True)
@@ -293,7 +296,9 @@ def main():
         scaler = torch.cuda.amp.GradScaler(enabled=(use_amp and device.type == "cuda"))
 
         # -------------------- Checkpoint paths --------------------
-        ckpt_state_path = f"{location_state_TCN}{cfg_id}.pt"
+        ckpt_state_path_prefix = f"{location_state_TCN}{cfg_id}"
+        ckpt_traced_prefix     = f"{location_traced_TCN}{cfg_id}"
+
         best_val = float("inf")
         early_count = 0
         best_epoch = -1
@@ -305,12 +310,12 @@ def main():
             steps = 0
 
             for features, speeds in train_loader:
-                features = features.to(device, non_blocking=True)
-                speeds   = speeds.to(device, non_blocking=True)
+                features = features.to(device, non_blocking=True)  # [B, T, F]
+                speeds   = speeds.to(device, non_blocking=True)    # [B, 1]
 
                 optimizer.zero_grad(set_to_none=True)
                 with torch.cuda.amp.autocast(enabled=(use_amp and device.type == "cuda")):
-                    outputs = model(features)
+                    outputs = model(features)      # [B, 1]
                     loss = criterion(outputs, speeds)
 
                 scaler.scale(loss).backward()
@@ -327,7 +332,7 @@ def main():
 
             train_loss = running / max(1, steps)
 
-            # Validation
+            # -------------------- Validation --------------------
             model.eval()
             vtotal = 0.0
             vsteps = 0
@@ -351,6 +356,8 @@ def main():
                 best_epoch = epoch
                 early_count = 0
 
+                # Save state checkpoint
+                state_path = f"{ckpt_state_path_prefix}.pt"
                 torch.save({
                     "model_state_dict": model.state_dict(),
                     "sequence_length": sequence_length,
@@ -376,8 +383,55 @@ def main():
                     "epochs": num_epochs,
                     "seed": seed,
                     "best_val_loss": best_val,
-                }, ckpt_state_path)
-                print(f"  Saved checkpoint: {ckpt_state_path}")
+                }, state_path)
+                print(f"  Saved checkpoint: {state_path}")
+
+                # TorchScript trace
+                example_input = torch.randn(1, sequence_length, detected_input_size, device=device, dtype=torch.float32)
+                traced_model = torch.jit.trace(model, example_input)
+                traced_jit_path = f"{ckpt_traced_prefix}_traced_jit_save.pt"
+                torch.jit.save(traced_model, traced_jit_path)
+                print(f"  Saved TorchScript JIT: {traced_jit_path}")
+
+                traced_simple_path = f"{ckpt_traced_prefix}_traced_simple_save.pt"
+                traced_model.save(traced_simple_path)
+                print(f"  Saved TorchScript simple: {traced_simple_path}")
+
+                # ONNX export
+                onnx_path = f"{ckpt_traced_prefix}_traced.onnx"
+                model_cpu = SpeedEstimatorTCN(
+                    input_size=detected_input_size,
+                    output_size=1,
+                    channels_per_layer=channels_per_layer,
+                    num_residual_blocks=len(channels_per_layer),
+                    convolutions_per_block=convolutions_per_block,
+                    kernel_size=kernel_size,
+                    dilation_schedule=dilation_schedule,
+                    dropout=fixed_dropout,
+                    use_weight_norm=use_weight_norm,
+                    activation=activation,
+                    norm_in_block=norm_in_block,
+                    head_pooling=head_pooling,
+                    causal=causal,
+                    output_clamp_min=output_clamp_min,
+                ).cpu()
+                ckpt = torch.load(state_path, map_location="cpu")
+                model_cpu.load_state_dict(ckpt["model_state_dict"])
+                model_cpu.eval()
+                ex_cpu = torch.randn(1, sequence_length, detected_input_size, dtype=torch.float32)
+                torch.onnx.export(
+                    model_cpu,
+                    ex_cpu,
+                    onnx_path,
+                    export_params=True,
+                    opset_version=11,
+                    do_constant_folding=True,
+                    input_names=["input"],
+                    output_names=["output"],
+                    dynamic_axes={"input": {0: "batch_size"}, "output": {0: "batch_size"}},
+                )
+                print(f"  Saved ONNX: {onnx_path}")
+
             else:
                 early_count += 1
                 print(f"  No improvement ({early_count}/{patience})")
@@ -386,45 +440,6 @@ def main():
                     break
 
         print(f"[ID={cfg_id}] Best val={best_val:.6f} at epoch {best_epoch+1 if best_epoch>=0 else 'N/A'}")
-
-        # -------------------- ONNX Export (only once after training) --------------------
-        if export_onnx and best_epoch >= 0:
-            onnx_path = f"{location_traced_TCN}{cfg_id}.onnx"
-            print(f"[ID={cfg_id}] Exporting best model to ONNX: {onnx_path}")
-
-            model_cpu = SpeedEstimatorTCN(
-                input_size=detected_input_size,
-                output_size=1,
-                channels_per_layer=channels_per_layer,
-                num_residual_blocks=len(channels_per_layer),
-                convolutions_per_block=convolutions_per_block,
-                kernel_size=kernel_size,
-                dilation_schedule=dilation_schedule,
-                dropout=fixed_dropout,
-                use_weight_norm=use_weight_norm,
-                activation=activation,
-                norm_in_block=norm_in_block,
-                head_pooling=head_pooling,
-                causal=causal,
-                output_clamp_min=output_clamp_min,
-            ).cpu()
-            ckpt = torch.load(ckpt_state_path, map_location="cpu")
-            model_cpu.load_state_dict(ckpt["model_state_dict"])
-            model_cpu.eval()
-
-            example_input = torch.randn(1, sequence_length, detected_input_size, dtype=torch.float32)
-            torch.onnx.export(
-                model_cpu,
-                example_input,
-                onnx_path,
-                export_params=True,
-                opset_version=onnx_opset,
-                do_constant_folding=True,
-                input_names=["input"],
-                output_names=["output"],
-                dynamic_axes={"input": {0: "batch_size"}, "output": {0: "batch_size"}},
-            )
-            print(f"[ID={cfg_id}] ONNX saved: {onnx_path}")
 
     print("\nAll TCN configurations processed.")
 
