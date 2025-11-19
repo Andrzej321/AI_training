@@ -72,14 +72,14 @@ def main():
     fixed_dropout      = 0.1
     fixed_step_size    = 5
 
-    default_learning_rate = 1e-3
+    default_learning_rate = 1e-4
     default_weight_decay  = 0.0
     default_optimizer     = "adam"       # adam | adamw | sgd
     default_loss          = "mse"        # mse | smooth_l1 | mae
     default_grad_clip     = 1.0
     default_batch_size    = 128
     default_epochs        = 100
-    patience              = 5
+    patience              = 10
     min_delta             = 0.0
     default_seed          = 42
 
