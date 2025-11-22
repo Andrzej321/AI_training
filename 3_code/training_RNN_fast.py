@@ -31,11 +31,11 @@ def main():
     # -------------------- Paths (adjust as needed) --------------------
     training_data_path = "../1_data/i7/it_1/it_1_100_norm/1_training"
     test_data_path     = "../1_data/i7/it_1/it_1_100_norm/2_testing"
-    hyperparams_csv    = "../2_trained_models/RNN/i7/it_4_norm/hyperparams_RNN_it_4.csv"
+    hyperparams_csv    = "../2_trained_models/RNN/i7/it_5_norm/hyperparams_RNN_it_5.csv"
 
     # Output prefixes
-    location_state = "../2_trained_models/RNN/trained_models/i7/it_4_norm/state_models/lon/model_RNN_lon_"
-    location_onnx  = "../2_trained_models/RNN/trained_models/i7/it_4_norm/traced_models/lon/model_RNN_lon_"
+    location_state = "../2_trained_models/RNN/i7/it_5_norm/state_models/lon/model_RNN_lon_"
+    location_onnx  = "../2_trained_models/RNN/i7/it_5_norm/traced_models/lon/model_RNN_lon_"
     os.makedirs(os.path.dirname(location_state), exist_ok=True)
     os.makedirs(os.path.dirname(location_onnx), exist_ok=True)
 
@@ -75,11 +75,15 @@ def main():
 
     # Dataset column behavior (single target: veh_u)
     target_column = "veh_u"
+    #drop_columns = [
+    #    "veh_u", "veh_v", "Time",
+    #    "imu_COG_acc_z", "imu_COG_gyro_roll_rate", "imu_COG_gyro_pitch_rate",
+    #    "drive_torque_FR", "drive_torque_RR", "brake_pressure_FR", "brake_pressure_RR",
+    #    "rwa_RM"
+    #]
+
     drop_columns = [
-        "veh_u", "veh_v", "Time",
-        "imu_COG_acc_z", "imu_COG_gyro_roll_rate", "imu_COG_gyro_pitch_rate",
-        "drive_torque_FR", "drive_torque_RR", "brake_pressure_FR", "brake_pressure_RR",
-        "rwa_RM"
+       "veh_u", "veh_v", "Time"
     ]
 
     # -------------------- Device --------------------
