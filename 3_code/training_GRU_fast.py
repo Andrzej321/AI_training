@@ -1,6 +1,6 @@
 import os
-import math
-from typing import Optional, List
+import time
+from typing import Optional, Tuple
 
 import numpy as np
 import pandas as pd
@@ -10,7 +10,7 @@ import torch.optim as optim
 import torch.onnx
 from torch.utils.data import DataLoader
 
-from classes import SpeedEstimatorTCN
+from classes import SpeedEstimatorGRU
 from datasets_cached import VehicleSpeedDatasetLongCached
 
 
@@ -23,86 +23,54 @@ def collate_fn(batch):
 
 
 def seed_worker(worker_id):
+    # Ensure each worker gets a different deterministic seed.
     base_seed = torch.initial_seed() % 2**32
     np.random.seed(base_seed + worker_id)
 
 
-def parse_list_cell(val, cast=int) -> Optional[List[int]]:
-    if val is None:
-        return None
-    if isinstance(val, float) and math.isnan(val):
-        return None
-    if isinstance(val, list):
-        return [cast(x) for x in val]
-    s = str(val).strip()
-    if s == "" or s.lower() == "none":
-        return None
-    s = s.strip("[]")
-    parts = [p.strip() for p in s.split(",") if p.strip() != ""]
-    return [cast(p) for p in parts]
-
-
-def to_bool(val, default=False) -> bool:
-    if val is None:
-        return default
-    if isinstance(val, bool):
-        return val
-    s = str(val).strip().lower()
-    if s in ("1", "true", "yes", "y"):
-        return True
-    if s in ("0", "false", "no", "n"):
-        return False
-    return default
-
-
 def main():
-    # -------------------- Paths --------------------
+    # -------------------- Paths (adjust to your layout) --------------------
     training_data_path = "../1_data/i7/it_1/it_1_100_norm/1_training"
     test_data_path     = "../1_data/i7/it_1/it_1_100_norm/2_testing"
-    hyperparams_csv    = "../2_trained_models/GRU/i7/it_2_norm/hyperparams_GRU_it_2.csv"
+    hyperparams_csv    = "../2_trained_models/GRU/trained_models/i7/it_6_norm/hyperparams_GRU_it_6.csv"
 
     # Output locations (prefixes)
-    location_state_TCN  = "../2_trained_models/GRU/i7/it_2_norm/state_models/lon/model_GRU_lon_"
-    location_traced_TCN = "../2_trained_models/GRU/i7/it_2_norm/traced_models/lon/model_GRU_lon_"
-    os.makedirs(os.path.dirname(location_state_TCN), exist_ok=True)
-    os.makedirs(os.path.dirname(location_traced_TCN), exist_ok=True)
+    location_state  = "../2_trained_models/GRU/trained_models/i7/it_6_norm/state_models/lon/model_GRU_lon_"
+    location_onnx   = "../2_trained_models/GRU/trained_models/i7/it_6_norm/traced_models/lon/model_GRU_lon_"
+    os.makedirs(os.path.dirname(location_state), exist_ok=True)
+    os.makedirs(os.path.dirname(location_onnx), exist_ok=True)
 
     # -------------------- Fixed / defaults --------------------
-    fixed_input_size   = 12
-    fixed_dropout      = 0.1
-    fixed_step_size    = 5
+    fixed_step_size      = 5
+    output_size          = 1
+    learning_rate        = 1e-4
+    default_batch_size   = 128
+    default_epochs       = 150
+    patience             = 5
+    min_delta            = 0.0
+    use_amp              = True     # Mixed precision
+    use_compile          = True     # torch.compile for PyTorch 2.x (if available)
+    grad_clip_val        = 1.0      # Set to None to disable clipping
+    default_seed         = 42
 
-    default_learning_rate = 1e-3
-    default_weight_decay  = 0.0
-    default_optimizer     = "adam"       # adam | adamw | sgd
-    default_loss          = "mse"        # mse | smooth_l1 | mae
-    default_grad_clip     = 1.0
-    default_batch_size    = 128
-    default_epochs        = 100
-    patience              = 5
-    min_delta             = 0.0
-    default_seed          = 42
+    # Scheduler options (pick one or None)
+    use_cosine_scheduler = False
+    use_plateau_scheduler = True    # If both True, cosine wins.
 
-    # Model behavior defaults
-    default_use_weight_norm = True
-    default_activation      = "relu"
-    default_norm_in_block   = "none"
-    default_head_pooling    = "last"
-    default_causal          = True
-    default_output_clamp_min = None
-
-    # -------------------- Performance knobs --------------------
+    # DataLoader performance knobs
     requested_num_workers = 8
     pin_memory            = True
     persistent_workers    = True
     prefetch_factor       = 4
-    use_amp               = True  # mixed precision
 
-    # -------------------- Export knobs --------------------
-    export_onnx = True
-    onnx_opset  = 11
+    # ONNX export control
+    export_onnx  = True
+    onnx_opset   = 11
 
-    # -------------------- Dataset column behavior --------------------
+    # CSV columns / filtering
+    filter_for_model_type = True
+
+    # Dataset column behavior (single target: veh_u)
     target_column = "veh_u"
     drop_columns = [
         "veh_u", "veh_v", "Time",
@@ -116,118 +84,99 @@ def main():
     print(f"Device: {device}")
     if device.type == "cuda":
         torch.backends.cudnn.benchmark = True
+        print("Enabled cudnn.benchmark for performance")
 
-    # -------------------- Read hyperparameters table --------------------
+    # -------------------- Hyperparameters table --------------------
     print(f"Reading hyperparameters from {hyperparams_csv}")
     df = pd.read_csv(hyperparams_csv, delimiter=";")
 
-    cols_lc = {c.lower(): c for c in df.columns}
-    def get_col(name: str) -> Optional[str]:
-        return cols_lc.get(name.lower(), None)
+    if filter_for_model_type and "model_type" in df.columns:
+        before_rows = len(df)
+        df = df[df["model_type"].astype(str).str.lower().str.contains("gru")]
+        print(f"Filtered model_type for 'gru': {before_rows} -> {len(df)} rows")
+        if len(df) == 0:
+            raise ValueError("No rows with model_type containing 'gru' found.")
 
-    col_sequence_size     = get_col("sequence_size") or get_col("sequence_length")
-    col_kernel_size       = get_col("kernel_size")
-    col_num_residual      = get_col("num_residual_blocks") or get_col("num_of_layers")
-    col_conv_per_block    = get_col("convolutions_per_block")
-    col_channels_per_layer= get_col("channels_per_layer")
-    col_dilation_schedule = get_col("dilation_schedule")
-    col_use_weight_norm   = get_col("use_weight_norm")
-    col_activation        = get_col("activation")
-    col_norm_in_block     = get_col("norm_in_block")
-    col_head_pooling      = get_col("head_pooling")
-    col_causal            = get_col("causal")
-    col_output_clamp_min  = get_col("output_clamp_min")
-    col_learning_rate     = get_col("learning_rate")
-    col_weight_decay      = get_col("weight_decay")
-    col_optimizer         = get_col("optimizer")
-    col_loss              = get_col("loss")
-    col_grad_clip         = get_col("grad_clip")
-    col_batch_size        = get_col("batch_size")
-    col_epochs            = get_col("epochs")
-    col_seed              = get_col("seed")
-    col_hidden_size       = get_col("hidden_size")
-    col_id                = get_col("ID") or get_col("id")
-    col_input_size        = get_col("input_size")  # optional consistency check
+    df = df.reset_index(drop=True)
+
+    # Column name normalization helper
+    cols_lc = {c.lower(): c for c in df.columns}
+    def col(name: str) -> Optional[str]:
+        return cols_lc.get(name.lower())
+
+    c_seq_len   = col("sequence_size") or col("sequence_length")
+    c_hidden    = col("hidden_size")
+    c_layers    = col("num_of_layers") or col("num_layers")
+    c_dropout   = col("dropout_rate") or col("dropout")
+    c_batch     = col("batch_size")
+    c_epochs    = col("epochs") or col("num_epochs")
+    c_seed      = col("seed")
+    c_id        = col("ID") or col("id")
+    c_input_sz  = col("input_size")
+
+    # Dataset cache: key=(sequence_length, step_size)
+    dataset_cache: dict[Tuple[int, int], Tuple[VehicleSpeedDatasetLongCached,
+                                               VehicleSpeedDatasetLongCached,
+                                               int]] = {}
 
     for row_idx, row in df.iterrows():
-        # -------------------- Extract per-row config --------------------
-        sequence_length = int(row[col_sequence_size]) if col_sequence_size else 100
-        kernel_size = int(row[col_kernel_size]) if col_kernel_size else 3
-        num_residual_blocks = int(row[col_num_residual]) if col_num_residual else 4
-        convolutions_per_block = int(row[col_conv_per_block]) if col_conv_per_block else 2
-
-        channels_per_layer = parse_list_cell(row[col_channels_per_layer]) if col_channels_per_layer else None
-        dilation_schedule  = parse_list_cell(row[col_dilation_schedule]) if col_dilation_schedule else None
-
-        if channels_per_layer is None:
-            hidden_size = int(row[col_hidden_size]) if col_hidden_size else 64
-            channels_per_layer = [hidden_size] * num_residual_blocks
-
-        if dilation_schedule is None:
-            dilation_schedule = [2 ** i for i in range(num_residual_blocks)]
-
-        use_weight_norm = to_bool(row[col_use_weight_norm], default_use_weight_norm) if col_use_weight_norm else default_use_weight_norm
-        activation      = str(row[col_activation]).lower() if col_activation and isinstance(row[col_activation], str) else default_activation
-        norm_in_block   = str(row[col_norm_in_block]).lower() if col_norm_in_block and isinstance(row[col_norm_in_block], str) else default_norm_in_block
-        head_pooling    = str(row[col_head_pooling]).lower() if col_head_pooling and isinstance(row[col_head_pooling], str) else default_head_pooling
-        causal          = to_bool(row[col_causal], default_causal) if col_causal else default_causal
-
-        output_clamp_min = None
-        if col_output_clamp_min:
-            v = row[col_output_clamp_min]
-            if not (isinstance(v, float) and math.isnan(v)):
-                try:
-                    output_clamp_min = float(v)
-                except Exception:
-                    output_clamp_min = default_output_clamp_min
-
-        learning_rate = float(row[col_learning_rate]) if col_learning_rate else default_learning_rate
-        weight_decay  = float(row[col_weight_decay]) if col_weight_decay else default_weight_decay
-        optimizer_name = str(row[col_optimizer]).lower() if col_optimizer else default_optimizer
-        loss_name     = str(row[col_loss]).lower() if col_loss else default_loss
-        grad_clip     = float(row[col_grad_clip]) if col_grad_clip else default_grad_clip
-        batch_size    = int(row[col_batch_size]) if col_batch_size else default_batch_size
-        num_epochs    = int(row[col_epochs]) if col_epochs else default_epochs
-        seed          = int(row[col_seed]) if col_seed else default_seed
-        cfg_id        = int(row[col_id]) if col_id else row_idx
-
-        input_size_expected = int(row[col_input_size]) if col_input_size else None
+        # -------------- Extract config --------------
+        sequence_length = int(row[c_seq_len]) if c_seq_len else 100
+        hidden_size     = int(row[c_hidden]) if c_hidden else 128
+        num_layers      = int(row[c_layers]) if c_layers else 2
+        dropout_rate    = float(row[c_dropout]) if c_dropout else 0.0
+        batch_size      = int(row[c_batch]) if c_batch else default_batch_size
+        num_epochs      = int(row[c_epochs]) if c_epochs else default_epochs
+        seed            = int(row[c_seed]) if c_seed else default_seed
+        cfg_id          = int(row[c_id]) if c_id else row_idx
+        input_size_expected = int(row[c_input_sz]) if c_input_sz and pd.notna(row[c_input_sz]) else None
 
         print("\n================================================")
-        print(f"TCN Config row={row_idx} (ID={cfg_id}) seq_len={sequence_length} kernel={kernel_size} residual_blocks={num_residual_blocks}")
+        print(f"GRU Config row={row_idx} (ID={cfg_id}) seq_len={sequence_length} hidden={hidden_size} layers={num_layers} dropout={dropout_rate}")
         print("================================================")
 
-        # -------------------- Seeding --------------------
+        # -------------- Seeding --------------
         torch.manual_seed(seed)
+        np.random.seed(seed)
         if device.type == "cuda":
             torch.cuda.manual_seed_all(seed)
 
-        # -------------------- Cached datasets --------------------
-        train_dataset = VehicleSpeedDatasetLongCached(
-            training_data_path,
-            extension="*.csv",
-            seq_length=sequence_length,
-            step_size=fixed_step_size,
-            drop_columns=drop_columns,
-            target_column=target_column,
-        )
-        test_dataset = VehicleSpeedDatasetLongCached(
-            test_data_path,
-            extension="*.csv",
-            seq_length=sequence_length,
-            step_size=fixed_step_size,
-            drop_columns=drop_columns,
-            target_column=target_column,
-        )
+        # -------------- Dataset reuse/build --------------
+        ds_key = (sequence_length, fixed_step_size)
+        if ds_key in dataset_cache:
+            train_dataset, test_dataset, detected_input_size = dataset_cache[ds_key]
+            print(f"[Reuse] Using cached datasets for seq_len={sequence_length}, step_size={fixed_step_size}")
+        else:
+            print(f"[Build] Creating datasets for seq_len={sequence_length}, step_size={fixed_step_size}")
+            t0 = time.perf_counter()
+            train_dataset = VehicleSpeedDatasetLongCached(
+                training_data_path,
+                extension="*.csv",
+                seq_length=sequence_length,
+                step_size=fixed_step_size,
+                drop_columns=drop_columns,
+                target_column=target_column,
+            )
+            test_dataset = VehicleSpeedDatasetLongCached(
+                test_data_path,
+                extension="*.csv",
+                seq_length=sequence_length,
+                step_size=fixed_step_size,
+                drop_columns=drop_columns,
+                target_column=target_column,
+            )
+            detected_input_size = train_dataset.input_size
+            dataset_cache[ds_key] = (train_dataset, test_dataset, detected_input_size)
+            t1 = time.perf_counter()
+            print(f"[Build] Finished dataset construction in {(t1 - t0):.2f}s")
 
-        detected_input_size = train_dataset.input_size
         if input_size_expected is not None:
             assert detected_input_size == input_size_expected, (
                 f"CSV input_size={input_size_expected} differs from detected={detected_input_size}. "
                 f"Adjust CSV or drop_columns."
             )
 
-        # -------------------- DataLoader factory --------------------
+        # -------------- DataLoader factory --------------
         def make_loader(ds, is_train):
             workers = max(0, requested_num_workers)
             pw = (workers > 0) and persistent_workers
@@ -252,72 +201,76 @@ def main():
         except Exception as e:
             print("DataLoader multiprocessing failed; falling back to num_workers=0.")
             print(f"Original exception: {e}")
-            requested_num_workers = 0
-            train_loader = make_loader(train_dataset, is_train=True)
-            test_loader  = make_loader(test_dataset,  is_train=False)
+            def make_loader_fallback(ds, is_train):
+                return DataLoader(
+                    ds,
+                    batch_size=batch_size,
+                    shuffle=is_train,
+                    num_workers=0,
+                    pin_memory=(pin_memory and device.type == "cuda"),
+                    collate_fn=collate_fn,
+                    drop_last=False,
+                )
+            train_loader = make_loader_fallback(train_dataset, is_train=True)
+            test_loader  = make_loader_fallback(test_dataset,  is_train=False)
 
-        # -------------------- Model --------------------
-        model = SpeedEstimatorTCN(
+        # -------------- Model --------------
+        model = SpeedEstimatorGRU(
             input_size=detected_input_size,
-            output_size=1,
-            channels_per_layer=channels_per_layer,
-            num_residual_blocks=len(channels_per_layer),
-            convolutions_per_block=convolutions_per_block,
-            kernel_size=kernel_size,
-            dilation_schedule=dilation_schedule,
-            dropout=fixed_dropout,
-            use_weight_norm=use_weight_norm,
-            activation=activation,
-            norm_in_block=norm_in_block,
-            head_pooling=head_pooling,
-            causal=causal,
-            output_clamp_min=output_clamp_min,
+            hidden_size=hidden_size,
+            num_layers=num_layers,
+            output_size=output_size,
+            dropout_rate=dropout_rate,
         ).to(device)
 
-        # -------------------- Loss --------------------
-        if loss_name in ("smooth_l1", "huber"):
-            criterion = nn.SmoothL1Loss()
-        elif loss_name in ("mae", "l1"):
-            criterion = nn.L1Loss()
-        else:
-            criterion = nn.MSELoss()
+        # Optional torch.compile (PyTorch 2.x)
+        if use_compile and hasattr(torch, "compile"):
+            try:
+                model = torch.compile(model)
+                print("Model compiled with torch.compile()")
+            except Exception as e:
+                print(f"torch.compile failed -> continuing without compile. Reason: {e}")
 
-        # -------------------- Optimizer --------------------
-        if optimizer_name == "adamw":
-            optimizer = optim.AdamW(model.parameters(), lr=learning_rate, weight_decay=weight_decay)
-        elif optimizer_name == "sgd":
-            optimizer = optim.SGD(model.parameters(), lr=learning_rate, weight_decay=weight_decay, momentum=0.9)
-        else:
-            optimizer = optim.Adam(model.parameters(), lr=learning_rate, weight_decay=weight_decay)
+        # -------------- Loss / Optimizer / Schedulers / AMP --------------
+        criterion = nn.MSELoss()
+        optimizer = optim.Adam(model.parameters(), lr=learning_rate)
+
+        scheduler = None
+        if use_cosine_scheduler:
+            scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=num_epochs)
+            print("Using CosineAnnealingLR scheduler.")
+        elif use_plateau_scheduler:
+            scheduler = optim.lr_scheduler.ReduceLROnPlateau(
+                optimizer, mode="min", factor=0.5, patience=2, verbose=True
+            )
+            print("Using ReduceLROnPlateau scheduler.")
 
         scaler = torch.cuda.amp.GradScaler(enabled=(use_amp and device.type == "cuda"))
 
-        # -------------------- Checkpoint paths --------------------
-        ckpt_state_path = f"{location_state_TCN}{cfg_id}.pt"
-        best_val = float("inf")
+        ckpt_state_path = f"{location_state}{cfg_id}.pt"
+        best_val    = float("inf")
+        best_epoch  = -1
         early_count = 0
-        best_epoch = -1
 
-        # -------------------- Training loop --------------------
+        # -------------- Training loop --------------
         for epoch in range(num_epochs):
             model.train()
             running = 0.0
             steps = 0
 
             for features, speeds in train_loader:
-                features = features.to(device, non_blocking=True)
-                speeds   = speeds.to(device, non_blocking=True)
+                features = features.to(device, non_blocking=True)  # [B, T, F]
+                speeds   = speeds.to(device, non_blocking=True)    # [B, 1]
 
                 optimizer.zero_grad(set_to_none=True)
                 with torch.cuda.amp.autocast(enabled=(use_amp and device.type == "cuda")):
-                    outputs = model(features)
+                    outputs = model(features)        # [B, 1]
                     loss = criterion(outputs, speeds)
 
                 scaler.scale(loss).backward()
-
-                if grad_clip and grad_clip > 0:
+                if grad_clip_val is not None:
                     scaler.unscale_(optimizer)
-                    torch.nn.utils.clip_grad_norm_(model.parameters(), grad_clip)
+                    nn.utils.clip_grad_norm_(model.parameters(), grad_clip_val)
 
                 scaler.step(optimizer)
                 scaler.update()
@@ -339,10 +292,17 @@ def main():
                     vloss    = criterion(vout, speeds)
                     vtotal  += vloss.item()
                     vsteps  += 1
-
             val_loss = vtotal / max(1, vsteps)
 
-            print(f"[ID={cfg_id}] Epoch [{epoch+1}/{num_epochs}] train={train_loss:.6f} val={val_loss:.6f}")
+            # Scheduler step
+            if scheduler is not None:
+                if isinstance(scheduler, optim.lr_scheduler.ReduceLROnPlateau):
+                    scheduler.step(val_loss)
+                else:
+                    scheduler.step()
+
+            current_lr = optimizer.param_groups[0]["lr"]
+            print(f"[ID={cfg_id}] Epoch [{epoch+1}/{num_epochs}] lr={current_lr:.2e} train={train_loss:.6f} val={val_loss:.6f}")
 
             improved = (best_val - val_loss) > min_delta
             if improved:
@@ -355,27 +315,16 @@ def main():
                     "model_state_dict": model.state_dict(),
                     "sequence_length": sequence_length,
                     "input_size": detected_input_size,
-                    "channels_per_layer": channels_per_layer,
-                    "dilation_schedule": dilation_schedule,
-                    "num_residual_blocks": len(channels_per_layer),
-                    "convolutions_per_block": convolutions_per_block,
-                    "kernel_size": kernel_size,
-                    "dropout": fixed_dropout,
-                    "use_weight_norm": use_weight_norm,
-                    "activation": activation,
-                    "norm_in_block": norm_in_block,
-                    "head_pooling": head_pooling,
-                    "causal": causal,
-                    "output_clamp_min": output_clamp_min,
+                    "hidden_size": hidden_size,
+                    "num_layers": num_layers,
+                    "dropout_rate": dropout_rate,
+                    "output_size": output_size,
                     "learning_rate": learning_rate,
-                    "weight_decay": weight_decay,
-                    "optimizer": optimizer_name,
-                    "loss": loss_name,
-                    "grad_clip": grad_clip,
                     "batch_size": batch_size,
                     "epochs": num_epochs,
                     "seed": seed,
                     "best_val_loss": best_val,
+                    "model_type": "gru",
                 }, ckpt_state_path)
                 print(f"  Saved checkpoint: {ckpt_state_path}")
             else:
@@ -387,27 +336,20 @@ def main():
 
         print(f"[ID={cfg_id}] Best val={best_val:.6f} at epoch {best_epoch+1 if best_epoch>=0 else 'N/A'}")
 
-        # -------------------- ONNX Export (only once after training) --------------------
+        # -------------- ONNX export (only if we got a best model) --------------
         if export_onnx and best_epoch >= 0:
-            onnx_path = f"{location_traced_TCN}{cfg_id}.onnx"
+            onnx_path = f"{location_onnx}{cfg_id}.onnx"
             print(f"[ID={cfg_id}] Exporting best model to ONNX: {onnx_path}")
 
-            model_cpu = SpeedEstimatorTCN(
+            # Rebuild a CPU model with same architecture (avoid compiled artifacts)
+            model_cpu = SpeedEstimatorGRU(
                 input_size=detected_input_size,
-                output_size=1,
-                channels_per_layer=channels_per_layer,
-                num_residual_blocks=len(channels_per_layer),
-                convolutions_per_block=convolutions_per_block,
-                kernel_size=kernel_size,
-                dilation_schedule=dilation_schedule,
-                dropout=fixed_dropout,
-                use_weight_norm=use_weight_norm,
-                activation=activation,
-                norm_in_block=norm_in_block,
-                head_pooling=head_pooling,
-                causal=causal,
-                output_clamp_min=output_clamp_min,
+                hidden_size=hidden_size,
+                num_layers=num_layers,
+                output_size=output_size,
+                dropout_rate=dropout_rate,
             ).cpu()
+
             ckpt = torch.load(ckpt_state_path, map_location="cpu")
             model_cpu.load_state_dict(ckpt["model_state_dict"])
             model_cpu.eval()
@@ -426,7 +368,7 @@ def main():
             )
             print(f"[ID={cfg_id}] ONNX saved: {onnx_path}")
 
-    print("\nAll TCN configurations processed.")
+    print("\nAll GRU configurations processed.")
 
 
 if __name__ == "__main__":

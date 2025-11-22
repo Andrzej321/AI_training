@@ -36,8 +36,8 @@ if __name__ == '__main__':
     num_epochs = 100
     num_models = len(df["model_type"])
 
-    location_state_GRU = "../2_trained_models/GRU/trained_models/i7/it_4/state_models/lon/model_GRU_lon_"
-    location_traced_GRU = "../2_trained_models/GRU/trained_models/i7/it_4/traced_models/lon/model_GRU_lon_"
+    location_state_GRU = "../2_trained_models/GRU/trained_models/i7/it_4_norm/state_models/lon/model_GRU_lon_"
+    location_traced_GRU = "../2_trained_models/GRU/trained_models/i7/it_4_norm/traced_models/lon/model_GRU_lon_"
 
     # Initialize variables to track the best test/validation loss
     patience = 5

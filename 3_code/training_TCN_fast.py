@@ -55,6 +55,22 @@ def to_bool(val, default=False) -> bool:
     return default
 
 
+class EMAHelper:
+    def __init__(self, model: nn.Module, decay: float):
+        self.decay = decay
+        self.shadow = {k: v.detach().clone() for k, v in model.state_dict().items() if v.dtype.is_floating_point}
+
+    @torch.no_grad()
+    def update(self, model: nn.Module):
+        for k, v in model.state_dict().items():
+            if k in self.shadow and v.dtype.is_floating_point:
+                self.shadow[k].mul_(self.decay).add_(v.detach(), alpha=1.0 - self.decay)
+
+    @torch.no_grad()
+    def apply_to(self, model: nn.Module):
+        model.load_state_dict({**model.state_dict(), **self.shadow}, strict=False)
+
+
 def main():
     # -------------------- Paths --------------------
     training_data_path = "../1_data/i7/it_1/it_1_100_norm/1_training"
@@ -64,12 +80,10 @@ def main():
     # Output locations
     location_state_TCN  = "../2_trained_models/TCN/i7/it_2_norm/state_models/lon/model_TCN_lon_"
     location_traced_TCN = "../2_trained_models/TCN/i7/it_3_norm/traced_models/lon/model_TCN_lon_"
-
     os.makedirs(os.path.dirname(location_state_TCN), exist_ok=True)
     os.makedirs(os.path.dirname(location_traced_TCN), exist_ok=True)
 
     # -------------------- Fixed / defaults --------------------
-    fixed_input_size   = 12       # expected input feature size after dropping columns
     fixed_dropout      = 0.1
     fixed_step_size    = 5
 
@@ -92,12 +106,22 @@ def main():
     default_causal          = True
     default_output_clamp_min = None
 
-    # -------------------- Performance knobs --------------------
+    # -------------------- New enhancement toggles --------------------
+    use_amp               = True          # mixed precision
+    use_compile           = True          # torch.compile for PyTorch 2.x
+    use_cosine_scheduler  = False
+    use_plateau_scheduler = True          # (ignored if cosine True)
+    warmup_epochs         = 5             # 0 disables linear warmup
+    grad_accum_steps      = 1             # >1 enables gradient accumulation
+    ema_decay             = 0.0           # >0 enables EMA of weights (e.g., 0.999)
+    print_every_batches   = 0             # >0 prints intra-epoch batch stats
+    max_batches_per_epoch = None          # int to cap training batches (debug)
+
+    # DataLoader performance knobs
     requested_num_workers = 8
     pin_memory            = True
     persistent_workers    = True
     prefetch_factor       = 4
-    use_amp               = True  # mixed precision
 
     # -------------------- Dataset column behavior --------------------
     target_column = "veh_u"
@@ -113,40 +137,40 @@ def main():
     print(f"Device: {device}")
     if device.type == "cuda":
         torch.backends.cudnn.benchmark = True
+        print("Enabled cudnn.benchmark for performance.")
 
     # -------------------- Read hyperparameters table --------------------
     print(f"Reading hyperparameters from {hyperparams_csv}")
     df = pd.read_csv(hyperparams_csv, delimiter=";")
-    num_rows = len(df.index)
 
     # Normalized column mapping (case-insensitive)
     cols_lc = {c.lower(): c for c in df.columns}
     def get_col(name: str) -> Optional[str]:
         return cols_lc.get(name.lower(), None)
 
-    col_sequence_size     = get_col("sequence_size") or get_col("sequence_length")
-    col_kernel_size       = get_col("kernel_size")
-    col_num_residual      = get_col("num_residual_blocks") or get_col("num_of_layers")
-    col_conv_per_block    = get_col("convolutions_per_block")
-    col_channels_per_layer= get_col("channels_per_layer")
-    col_dilation_schedule = get_col("dilation_schedule")
-    col_use_weight_norm   = get_col("use_weight_norm")
-    col_activation        = get_col("activation")
-    col_norm_in_block     = get_col("norm_in_block")
-    col_head_pooling      = get_col("head_pooling")
-    col_causal            = get_col("causal")
-    col_output_clamp_min  = get_col("output_clamp_min")
-    col_learning_rate     = get_col("learning_rate")
-    col_weight_decay      = get_col("weight_decay")
-    col_optimizer         = get_col("optimizer")
-    col_loss              = get_col("loss")
-    col_grad_clip         = get_col("grad_clip")
-    col_batch_size        = get_col("batch_size")
-    col_epochs            = get_col("epochs")
-    col_seed              = get_col("seed")
-    col_hidden_size       = get_col("hidden_size")
-    col_id                = get_col("ID") or get_col("id")
-    col_input_size        = get_col("input_size")  # optional consistency check
+    col_sequence_size      = get_col("sequence_size") or get_col("sequence_length")
+    col_kernel_size        = get_col("kernel_size")
+    col_num_residual       = get_col("num_residual_blocks") or get_col("num_of_layers")
+    col_conv_per_block     = get_col("convolutions_per_block")
+    col_channels_per_layer = get_col("channels_per_layer")
+    col_dilation_schedule  = get_col("dilation_schedule")
+    col_use_weight_norm    = get_col("use_weight_norm")
+    col_activation         = get_col("activation")
+    col_norm_in_block      = get_col("norm_in_block")
+    col_head_pooling       = get_col("head_pooling")
+    col_causal             = get_col("causal")
+    col_output_clamp_min   = get_col("output_clamp_min")
+    col_learning_rate      = get_col("learning_rate")
+    col_weight_decay       = get_col("weight_decay")
+    col_optimizer          = get_col("optimizer")
+    col_loss               = get_col("loss")
+    col_grad_clip          = get_col("grad_clip")
+    col_batch_size         = get_col("batch_size")
+    col_epochs             = get_col("epochs")
+    col_seed               = get_col("seed")
+    col_hidden_size        = get_col("hidden_size")
+    col_id                 = get_col("ID") or get_col("id")
+    col_input_size         = get_col("input_size")  # optional consistency check
 
     for row_idx, row in df.iterrows():
         # -------------------- Extract per-row config --------------------
@@ -158,14 +182,17 @@ def main():
         channels_per_layer = parse_list_cell(row[col_channels_per_layer]) if col_channels_per_layer else None
         dilation_schedule  = parse_list_cell(row[col_dilation_schedule]) if col_dilation_schedule else None
 
-        # Fallback to hidden_size replication if channels_per_layer is absent
         if channels_per_layer is None:
             hidden_size = int(row[col_hidden_size]) if col_hidden_size else 64
             channels_per_layer = [hidden_size] * num_residual_blocks
 
-        # Fallback dilation schedule to exponential
         if dilation_schedule is None:
             dilation_schedule = [2 ** i for i in range(num_residual_blocks)]
+
+        # Validate
+        assert len(channels_per_layer) == num_residual_blocks, "channels_per_layer length mismatch with num_residual_blocks"
+        assert all(k > 0 for k in dilation_schedule), "All dilation values must be > 0"
+        assert kernel_size > 0, "kernel_size must be positive"
 
         # Behavioral knobs
         use_weight_norm = to_bool(row[col_use_weight_norm], default_use_weight_norm) if col_use_weight_norm else default_use_weight_norm
@@ -184,15 +211,15 @@ def main():
                     output_clamp_min = default_output_clamp_min
 
         # Training hyperparams
-        learning_rate = float(row[col_learning_rate]) if col_learning_rate else default_learning_rate
-        weight_decay  = float(row[col_weight_decay]) if col_weight_decay else default_weight_decay
+        learning_rate  = float(row[col_learning_rate]) if col_learning_rate else default_learning_rate
+        weight_decay   = float(row[col_weight_decay]) if col_weight_decay else default_weight_decay
         optimizer_name = str(row[col_optimizer]).lower() if col_optimizer else default_optimizer
-        loss_name     = str(row[col_loss]).lower() if col_loss else default_loss
-        grad_clip     = float(row[col_grad_clip]) if col_grad_clip else default_grad_clip
-        batch_size    = int(row[col_batch_size]) if col_batch_size else default_batch_size
-        num_epochs    = int(row[col_epochs]) if col_epochs else default_epochs
-        seed          = int(row[col_seed]) if col_seed else default_seed
-        cfg_id        = int(row[col_id]) if col_id else row_idx
+        loss_name      = str(row[col_loss]).lower() if col_loss else default_loss
+        grad_clip      = float(row[col_grad_clip]) if col_grad_clip else default_grad_clip
+        batch_size     = int(row[col_batch_size]) if col_batch_size else default_batch_size
+        num_epochs     = int(row[col_epochs]) if col_epochs else default_epochs
+        seed           = int(row[col_seed]) if col_seed else default_seed
+        cfg_id         = int(row[col_id]) if col_id else row_idx
 
         input_size_expected = int(row[col_input_size]) if col_input_size else None
 
@@ -202,10 +229,11 @@ def main():
 
         # -------------------- Seeding --------------------
         torch.manual_seed(seed)
+        np.random.seed(seed)
         if device.type == "cuda":
             torch.cuda.manual_seed_all(seed)
 
-        # -------------------- Build cached datasets --------------------
+        # -------------------- Dataset build --------------------
         train_dataset = VehicleSpeedDatasetLongCached(
             training_data_path,
             extension="*.csv",
@@ -255,9 +283,22 @@ def main():
         except Exception as e:
             print("DataLoader failed with multiprocessing; falling back to num_workers=0.")
             print(f"Original exception: {e}")
-            requested_num_workers = 0
-            train_loader = make_loader(train_dataset, is_train=True)
-            test_loader  = make_loader(test_dataset,  is_train=False)
+            train_loader = DataLoader(
+                train_dataset,
+                batch_size=batch_size,
+                shuffle=True,
+                num_workers=0,
+                pin_memory=(pin_memory and device.type == "cuda"),
+                collate_fn=collate_fn
+            )
+            test_loader = DataLoader(
+                test_dataset,
+                batch_size=batch_size,
+                shuffle=False,
+                num_workers=0,
+                pin_memory=(pin_memory and device.type == "cuda"),
+                collate_fn=collate_fn
+            )
 
         # -------------------- Model --------------------
         model = SpeedEstimatorTCN(
@@ -277,6 +318,13 @@ def main():
             output_clamp_min=output_clamp_min,
         ).to(device)
 
+        if use_compile and hasattr(torch, "compile"):
+            try:
+                model = torch.compile(model)
+                print("Model compiled with torch.compile()")
+            except Exception as e:
+                print(f"torch.compile failed -> continuing without compile. Reason: {e}")
+
         # -------------------- Loss --------------------
         if loss_name in ("smooth_l1", "huber"):
             criterion = nn.SmoothL1Loss()
@@ -293,7 +341,24 @@ def main():
         else:
             optimizer = optim.Adam(model.parameters(), lr=learning_rate, weight_decay=weight_decay)
 
+        # -------------------- Scheduler --------------------
+        scheduler = None
+        if use_cosine_scheduler:
+            scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=num_epochs)
+            print("Using CosineAnnealingLR scheduler.")
+        elif use_plateau_scheduler:
+            scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode="min", factor=0.5, patience=2, verbose=True)
+            print("Using ReduceLROnPlateau scheduler.")
+
+        # -------------------- AMP / EMA / GradScaler --------------------
         scaler = torch.cuda.amp.GradScaler(enabled=(use_amp and device.type == "cuda"))
+        ema = EMAHelper(model, ema_decay) if ema_decay > 0 else None
+
+        # -------------------- Helpers --------------------
+        def lr_warmup_factor(ep: int):
+            if warmup_epochs <= 0 or ep >= warmup_epochs:
+                return 1.0
+            return (ep + 1) / warmup_epochs
 
         # -------------------- Checkpoint paths --------------------
         ckpt_state_path_prefix = f"{location_state_TCN}{cfg_id}"
@@ -309,13 +374,24 @@ def main():
             running = 0.0
             steps = 0
 
-            for features, speeds in train_loader:
-                features = features.to(device, non_blocking=True)  # [B, T, F]
-                speeds   = speeds.to(device, non_blocking=True)    # [B, 1]
+            # Warmup adjust LR if active and no scheduler overrides base LR
+            if warmup_epochs > 0 and epoch < warmup_epochs:
+                base_lr = learning_rate
+                scaled_lr = base_lr * lr_warmup_factor(epoch)
+                for pg in optimizer.param_groups:
+                    pg["lr"] = scaled_lr
+            elif scheduler is None and warmup_epochs > 0 and epoch == warmup_epochs:
+                for pg in optimizer.param_groups:
+                    pg["lr"] = learning_rate
 
-                optimizer.zero_grad(set_to_none=True)
+            optimizer.zero_grad(set_to_none=True)
+
+            for batch_idx, (features, speeds) in enumerate(train_loader):
+                features = features.to(device, non_blocking=True)
+                speeds   = speeds.to(device, non_blocking=True)
+
                 with torch.cuda.amp.autocast(enabled=(use_amp and device.type == "cuda")):
-                    outputs = model(features)      # [B, 1]
+                    outputs = model(features)
                     loss = criterion(outputs, speeds)
 
                 scaler.scale(loss).backward()
@@ -324,11 +400,30 @@ def main():
                     scaler.unscale_(optimizer)
                     torch.nn.utils.clip_grad_norm_(model.parameters(), grad_clip)
 
-                scaler.step(optimizer)
-                scaler.update()
+                # Gradient accumulation
+                if (batch_idx + 1) % grad_accum_steps == 0:
+                    scaler.step(optimizer)
+                    scaler.update()
+                    optimizer.zero_grad(set_to_none=True)
+                    if ema:
+                        ema.update(model)
 
                 running += loss.item()
                 steps += 1
+
+                if print_every_batches > 0 and (batch_idx + 1) % print_every_batches == 0:
+                    print(f"  Batch {batch_idx+1} loss={loss.item():.6f}")
+
+                if max_batches_per_epoch and steps >= max_batches_per_epoch:
+                    break
+
+            # If accumulation leaves pending grads (not stepped yet)
+            if grad_accum_steps > 1 and steps % grad_accum_steps != 0:
+                scaler.step(optimizer)
+                scaler.update()
+                optimizer.zero_grad(set_to_none=True)
+                if ema:
+                    ema.update(model)
 
             train_loss = running / max(1, steps)
 
@@ -347,7 +442,15 @@ def main():
 
             val_loss = vtotal / max(1, vsteps)
 
-            print(f"[ID={cfg_id}] Epoch [{epoch+1}/{num_epochs}] train={train_loss:.6f} val={val_loss:.6f}")
+            # Scheduler step
+            if scheduler is not None:
+                if isinstance(scheduler, optim.lr_scheduler.ReduceLROnPlateau):
+                    scheduler.step(val_loss)
+                else:
+                    scheduler.step()
+
+            current_lr = optimizer.param_groups[0]["lr"]
+            print(f"[ID={cfg_id}] Epoch [{epoch+1}/{num_epochs}] lr={current_lr:.2e} train={train_loss:.6f} val={val_loss:.6f}")
 
             improved = (best_val - val_loss) > min_delta
             if improved:
@@ -356,10 +459,33 @@ def main():
                 best_epoch = epoch
                 early_count = 0
 
+                # Use EMA weights for saving if enabled (shadow is typically better)
+                save_model = model
+                if ema:
+                    # Create a cloned CPU model with EMA weights applied
+                    ema_model = SpeedEstimatorTCN(
+                        input_size=detected_input_size,
+                        output_size=1,
+                        channels_per_layer=channels_per_layer,
+                        num_residual_blocks=len(channels_per_layer),
+                        convolutions_per_block=convolutions_per_block,
+                        kernel_size=kernel_size,
+                        dilation_schedule=dilation_schedule,
+                        dropout=fixed_dropout,
+                        use_weight_norm=use_weight_norm,
+                        activation=activation,
+                        norm_in_block=norm_in_block,
+                        head_pooling=head_pooling,
+                        causal=causal,
+                        output_clamp_min=output_clamp_min,
+                    ).to(device)
+                    ema.apply_to(ema_model)
+                    save_model = ema_model
+
                 # Save state checkpoint
                 state_path = f"{ckpt_state_path_prefix}.pt"
                 torch.save({
-                    "model_state_dict": model.state_dict(),
+                    "model_state_dict": save_model.state_dict(),
                     "sequence_length": sequence_length,
                     "input_size": detected_input_size,
                     "channels_per_layer": channels_per_layer,
@@ -383,12 +509,17 @@ def main():
                     "epochs": num_epochs,
                     "seed": seed,
                     "best_val_loss": best_val,
+                    "scheduler": "cosine" if use_cosine_scheduler else ("plateau" if use_plateau_scheduler else "none"),
+                    "warmup_epochs": warmup_epochs,
+                    "compile_used": use_compile and hasattr(torch, 'compile'),
+                    "ema_decay": ema_decay,
+                    "grad_accum_steps": grad_accum_steps,
                 }, state_path)
                 print(f"  Saved checkpoint: {state_path}")
 
-                # TorchScript trace
+                # TorchScript trace (using save_model which may be EMA)
                 example_input = torch.randn(1, sequence_length, detected_input_size, device=device, dtype=torch.float32)
-                traced_model = torch.jit.trace(model, example_input)
+                traced_model = torch.jit.trace(save_model, example_input)
                 traced_jit_path = f"{ckpt_traced_prefix}_traced_jit_save.pt"
                 torch.jit.save(traced_model, traced_jit_path)
                 print(f"  Saved TorchScript JIT: {traced_jit_path}")
@@ -397,7 +528,7 @@ def main():
                 traced_model.save(traced_simple_path)
                 print(f"  Saved TorchScript simple: {traced_simple_path}")
 
-                # ONNX export
+                # ONNX export (CPU model)
                 onnx_path = f"{ckpt_traced_prefix}_traced.onnx"
                 model_cpu = SpeedEstimatorTCN(
                     input_size=detected_input_size,

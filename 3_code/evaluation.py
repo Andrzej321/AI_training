@@ -5,7 +5,7 @@ import os
 if __name__ == '__main__':
 
     model_type = "GRU"
-    iteration_num = "5_norm"
+    iteration_num = "6_norm"
 
     base_loc = f"../2_trained_models/{model_type}/trained_models/i7/it_{iteration_num}/"
 
