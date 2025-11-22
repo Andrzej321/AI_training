@@ -31,11 +31,11 @@ def main():
     # -------------------- Paths --------------------
     training_data_path = "../1_data/i7/it_1/it_1_100_norm/1_training"
     test_data_path     = "../1_data/i7/it_1/it_1_100_norm/2_testing"
-    hyperparams_csv    = "../2_trained_models/Simple RNN/i7/it_2_norm_input20/hyperparams_RNN_it_2.csv"  # Adjust if needed
+    hyperparams_csv    = "../2_trained_models/Simple RNN/i7/it_3_norm/hyperparams_RNN_it_3.csv"  # Adjust if needed
 
     # Output locations (prefix prefixes)
-    location_state  = "../2_trained_models/Simple_RNN/trained_models/i7/it_2_norm_input20/state_models/lon/model_RNN_lon_"
-    location_onnx   = "../2_trained_models/Simple_RNN/trained_models/i7/it_2_norm_input20/traced_models/lon/model_RNN_lon_"
+    location_state  = "../2_trained_models/Simple RNN/trained_models/i7/it_3_norm/state_models/lon/model_RNN_lon_"
+    location_onnx   = "../2_trained_models/Simple RNN/trained_models/i7/it_3_norm/traced_models/lon/model_RNN_lon_"
     os.makedirs(os.path.dirname(location_state), exist_ok=True)
     os.makedirs(os.path.dirname(location_onnx), exist_ok=True)
 
@@ -65,7 +65,10 @@ def main():
     # Dataset column behavior (single target: veh_u)
     target_column = "veh_u"
     drop_columns = [
-        "veh_u", "veh_v", "Time"
+        "veh_u", "veh_v", "Time",
+        "imu_COG_acc_z", "imu_COG_gyro_roll_rate", "imu_COG_gyro_pitch_rate",
+        "drive_torque_FR", "drive_torque_RR", "brake_pressure_FR", "brake_pressure_RR",
+        "rwa_RM"
     ]
 
     # -------------------- Device --------------------
