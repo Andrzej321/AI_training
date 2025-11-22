@@ -189,14 +189,14 @@ def sliding_window_predict(
 
 if __name__ == "__main__":
     # ========= User-editable controls =========
-    model_type = "GRU"          # "TCN" | "RNN" | "LSTM" | "GRU" | "Transformer"
+    model_type = "RNN"          # "TCN" | "RNN" | "LSTM" | "GRU" | "Transformer"
     task = "lon"                # subdir for models/results; e.g., "lon", "lat", or "both"
-    iteration_num = "5_norm"           # iteration number
+    iteration_num = "2_norm_input20"           # iteration number
     car_model = "i7"
 
     # Data and model locations
     validation_data_loc = f"../1_data/{car_model}/it_1/it_1_100_norm/3_validation/"
-    base_model_dir = f"../2_trained_models/{model_type}/trained_models/{car_model}/it_{iteration_num}/"
+    base_model_dir = f"../2_trained_models/Simple {model_type}/{car_model}/it_{iteration_num}/"
     model_folder_loc = os.path.join(base_model_dir, "state_models", task)
     csv_save_loc = os.path.join(base_model_dir, "results", task)
     os.makedirs(csv_save_loc, exist_ok=True)
