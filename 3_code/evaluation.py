@@ -5,9 +5,9 @@ import os
 if __name__ == '__main__':
 
     model_type = "RNN"
-    iteration_num = "2_norm_input20"
+    iteration_num = "3_norm"
 
-    base_loc = f"../2_trained_models/Simple {model_type}/i7/it_{iteration_num}/"
+    base_loc = f"../2_trained_models/{model_type}/i7/it_{iteration_num}/"
 
     #Reading in the num of models and model locations
     model_folder_loc = os.path.join(base_loc, "state_models", "lon")
