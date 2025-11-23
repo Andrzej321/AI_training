@@ -4,16 +4,23 @@ import os
 
 if __name__ == '__main__':
 
-    model_type = "GRU"
-    iteration_num = "6_norm"
+    model_type = "other_estimators"
+    iteration_num = "7_norm"
 
-    base_loc = f"../2_trained_models/{model_type}/trained_models/i7/it_{iteration_num}/"
+    if model_type == "other_estimators":
+        base_loc = f"../2_trained_models/{model_type}/"
 
-    #Reading in the num of models and model locations
-    model_folder_loc = os.path.join(base_loc, "state_models", "lon")
-    pt_files = [f for f in os.listdir(model_folder_loc) if f.endswith(".pt")]
+        models = ['best_wheel','model_based','ekf_m_bw','veh_ref']
 
-    num_of_models = len(pt_files)
+        num_of_models = len(models)
+    else:
+        base_loc = f"../2_trained_models/{model_type}/trained_models/i7/it_{iteration_num}/"
+
+        #Reading in the num of models and model locations
+        model_folder_loc = os.path.join(base_loc, "state_models", "lon")
+        pt_files = [f for f in os.listdir(model_folder_loc) if f.endswith(".pt")]
+
+        num_of_models = len(pt_files)
 
     #Reading in the result files
     result_folder_loc = os.path.join(base_loc, "results", "lon/")
@@ -46,7 +53,10 @@ if __name__ == '__main__':
 
             df = pd.read_csv(result_folder_loc + meas_files[meas_it])
 
-            err = df[pt_files[model_it]] - df['veh_u']
+            if model_type == "other_estimators":
+                err = df[models[model_it]] - df['veh_u']
+            else:
+                err = df[pt_files[model_it]] - df['veh_u']
 
             #Calculating the Root Mean Square Error (RMSE) and Mean Absolute Error (MAE)
             rmse = float(np.sqrt(np.mean(err ** 2)))
@@ -79,28 +89,56 @@ if __name__ == '__main__':
             pwt_1_rel_sum += pwt_1_rel
             pwt_2_rel_sum += pwt_2_rel
 
-            rows_spec.append({
-                'Model': pt_files[model_it],
-                'Meas': meas_files[meas_it],
-                'RMSE': rmse,
-                'MAE': mae,
-                'MaxAE': max_err,
-                'PwT_1_abs': pwt_1_abs,
-                'PwT_2_abs': pwt_2_abs,
-                'PwT_1_rel': pwt_1_rel,
-                'PwT_2_rel': pwt_2_rel,
-            })
+            if model_type == "other_estimators":
+                rows_spec.append({
+                    'Model': models[model_it],
+                    'Meas': meas_files[meas_it],
+                    'RMSE': rmse,
+                    'MAE': mae,
+                    'MaxAE': max_err,
+                    'PwT_1_abs': pwt_1_abs,
+                    'PwT_2_abs': pwt_2_abs,
+                    'PwT_1_rel': pwt_1_rel,
+                    'PwT_2_rel': pwt_2_rel,
+                })
 
-        rows_sum.append({
-            'Model': pt_files[model_it],
-            'RMSE': rmse_sum / num_of_meas_files,
-            'MAE': mae_sum / num_of_meas_files,
-            'MaxAE': max_err_sum,
-            'PwT_1_abs': pwt_1_abs_sum / num_of_meas_files,
-            'PwT_2_abs': pwt_2_abs_sum / num_of_meas_files,
-            'PwT_1_rel': pwt_1_rel_sum / num_of_meas_files,
-            'PwT_2_rel': pwt_2_rel_sum / num_of_meas_files,
-        })
+                print(f"Meas {meas_files[meas_it]} for iteration {models[model_it]} is evaluated.")
+            else:
+                rows_spec.append({
+                    'Model': pt_files[model_it],
+                    'Meas': meas_files[meas_it],
+                    'RMSE': rmse,
+                    'MAE': mae,
+                    'MaxAE': max_err,
+                    'PwT_1_abs': pwt_1_abs,
+                    'PwT_2_abs': pwt_2_abs,
+                    'PwT_1_rel': pwt_1_rel,
+                    'PwT_2_rel': pwt_2_rel,
+                })
+
+                print(f"Meas {meas_files[meas_it]} for iteration {pt_files[model_it]} is evaluated.")
+        if model_type == "other_estimators":
+            rows_sum.append({
+                'Model': models[model_it],
+                'RMSE': rmse_sum / num_of_meas_files,
+                'MAE': mae_sum / num_of_meas_files,
+                'MaxAE': max_err_sum,
+                'PwT_1_abs': pwt_1_abs_sum / num_of_meas_files,
+                'PwT_2_abs': pwt_2_abs_sum / num_of_meas_files,
+                'PwT_1_rel': pwt_1_rel_sum / num_of_meas_files,
+                'PwT_2_rel': pwt_2_rel_sum / num_of_meas_files,
+            })
+        else:
+            rows_sum.append({
+                'Model': pt_files[model_it],
+                'RMSE': rmse_sum / num_of_meas_files,
+                'MAE': mae_sum / num_of_meas_files,
+                'MaxAE': max_err_sum,
+                'PwT_1_abs': pwt_1_abs_sum / num_of_meas_files,
+                'PwT_2_abs': pwt_2_abs_sum / num_of_meas_files,
+                'PwT_1_rel': pwt_1_rel_sum / num_of_meas_files,
+                'PwT_2_rel': pwt_2_rel_sum / num_of_meas_files,
+            })
 
 
     eval_model_spec_df = pd.DataFrame(rows_spec)

@@ -191,7 +191,7 @@ if __name__ == "__main__":
     # ========= User-editable controls =========
     model_type = "GRU"          # "TCN" | "RNN" | "LSTM" | "GRU" | "Transformer"
     task = "lon"                # subdir for models/results; e.g., "lon", "lat", or "both"
-    iteration_num = "6_norm"           # iteration number
+    iteration_num = "7_norm"           # iteration number
     car_model = "i7"
 
     # Data and model locations
