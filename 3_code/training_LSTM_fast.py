@@ -31,11 +31,11 @@ def main():
     # -------------------- Paths (adjust as needed) --------------------
     training_data_path = "../1_data/i7/it_1/it_1_100_norm/1_training"
     test_data_path     = "../1_data/i7/it_1/it_1_100_norm/2_testing"
-    hyperparams_csv    = "../2_trained_models/LSTM/trained_models/i7/it_5_norm/hyperparams_LSTM_it_5.csv"
+    hyperparams_csv    = "../2_trained_models/LSTM/trained_models/i7/it_6_norm/hyperparams_LSTM_it_6.csv"
 
     # Output locations (prefixes)
-    location_state = "../2_trained_models/LSTM/trained_models/i7/it_5_norm/state_models/lon/model_LSTM_lon_"
-    location_onnx  = "../2_trained_models/LSTM/trained_models/i7/it_5_norm/traced_models/lon/model_LSTM_lon_"
+    location_state = "../2_trained_models/LSTM/trained_models/i7/it_6_norm/state_models/lon/model_LSTM_lon_"
+    location_onnx  = "../2_trained_models/LSTM/trained_models/i7/it_6_norm/traced_models/lon/model_LSTM_lon_"
     os.makedirs(os.path.dirname(location_state), exist_ok=True)
     os.makedirs(os.path.dirname(location_onnx), exist_ok=True)
 
