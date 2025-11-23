@@ -66,11 +66,11 @@ def main():
     # -------------------- Paths --------------------
     training_data_path = "../1_data/i7/it_1/it_1_100_norm/1_training"
     test_data_path     = "../1_data/i7/it_1/it_1_100_norm/2_testing"
-    hyperparams_csv    = "../2_trained_models/Transformer/i7/it_1_norm/hyperparams_T_it_4.csv"
+    hyperparams_csv    = "../2_trained_models/Transformer/i7/it_2_norm/hyperparams_T_it_2_2_3.csv"
 
     # Output locations (prefixes)
-    location_state  = "../2_trained_models/Transformer/i7/it_1_norm/state_models/lon/model_T_lon_"
-    location_onnx   = "../2_trained_models/Transformer/i7/it_1_norm/traced_models/lon/model_T_lon_"
+    location_state  = "../2_trained_models/Transformer/i7/it_2_norm/state_models/lon/model_T_lon_"
+    location_onnx   = "../2_trained_models/Transformer/i7/it_2_norm/traced_models/lon/model_T_lon_"
     os.makedirs(os.path.dirname(location_state), exist_ok=True)
     os.makedirs(os.path.dirname(location_onnx), exist_ok=True)
 
@@ -176,7 +176,12 @@ def main():
                                                VehicleSpeedDatasetLongCached,
                                                int]] = {}
 
+    starting_point = 712
+
     for j, row in df.iterrows():
+
+        if j < starting_point: continue
+
         # -------------------- Extract per-row config --------------------
         seq_len          = get_int(row, c_seq_len, 100) if c_seq_len else 100
         d_model          = get_int(row, c_d_model, default_d_model) if c_d_model else default_d_model

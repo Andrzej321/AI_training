@@ -75,10 +75,10 @@ def main():
     # -------------------- Paths --------------------
     training_data_path = "../1_data/i7/it_1/it_1_100_norm/1_training"
     test_data_path     = "../1_data/i7/it_1/it_1_100_norm/2_testing"
-    hyperparams_csv    = "../2_trained_models/TCN/i7/it_2_norm/hyperparams_TCN_it_2.csv"
+    hyperparams_csv    = "../2_trained_models/TCN/i7/it_3_norm/hyperparams_TCN_it_3.csv"
 
     # Output locations
-    location_state_TCN  = "../2_trained_models/TCN/i7/it_2_norm/state_models/lon/model_TCN_lon_"
+    location_state_TCN  = "../2_trained_models/TCN/i7/it_3_norm/state_models/lon/model_TCN_lon_"
     location_traced_TCN = "../2_trained_models/TCN/i7/it_3_norm/traced_models/lon/model_TCN_lon_"
     os.makedirs(os.path.dirname(location_state_TCN), exist_ok=True)
     os.makedirs(os.path.dirname(location_traced_TCN), exist_ok=True)
