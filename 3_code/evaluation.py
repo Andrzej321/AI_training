@@ -4,8 +4,8 @@ import os
 
 if __name__ == '__main__':
 
-    model_type = "other_estimators"
-    iteration_num = "7_norm"
+    model_type = "Transformer"
+    iteration_num = "2_norm"
 
     if model_type == "other_estimators":
         base_loc = f"../2_trained_models/{model_type}/"
@@ -14,7 +14,7 @@ if __name__ == '__main__':
 
         num_of_models = len(models)
     else:
-        base_loc = f"../2_trained_models/{model_type}/trained_models/i7/it_{iteration_num}/"
+        base_loc = f"../2_trained_models/{model_type}/i7/it_{iteration_num}/"
 
         #Reading in the num of models and model locations
         model_folder_loc = os.path.join(base_loc, "state_models", "lon")
