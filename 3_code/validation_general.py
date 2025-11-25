@@ -196,9 +196,9 @@ if __name__ == "__main__":
 
     # Data and model locations
     validation_data_loc = f"../1_data/{car_model}/it_1/it_1_100_norm/3_validation/"
-    base_model_dir = f"../2_trained_models/{model_type}/{car_model}/it_{iteration_num}/"
-    model_folder_loc = os.path.join(base_model_dir, "state_models", task)
-    csv_save_loc = os.path.join(base_model_dir, "results", task)
+    base_model_dir = f"../2_trained_models/best_models_lon/ai_models/{model_type}/"
+    model_folder_loc = os.path.join(base_model_dir, "state_models")
+    csv_save_loc = os.path.join(base_model_dir, "results")
     os.makedirs(csv_save_loc, exist_ok=True)
     # =========================================
 

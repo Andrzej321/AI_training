@@ -14,22 +14,22 @@ if __name__ == '__main__':
 
         num_of_models = len(models)
     else:
-        base_loc = f"../2_trained_models/{model_type}/i7/it_{iteration_num}/"
+        base_loc = f"../2_trained_models/best_models_lon/ai_models/{model_type}/"
 
         #Reading in the num of models and model locations
-        model_folder_loc = os.path.join(base_loc, "state_models", "lon")
+        model_folder_loc = os.path.join(base_loc, "state_models")
         pt_files = [f for f in os.listdir(model_folder_loc) if f.endswith(".pt")]
 
         num_of_models = len(pt_files)
 
     #Reading in the result files
-    result_folder_loc = os.path.join(base_loc, "results", "lon/")
+    result_folder_loc = os.path.join(base_loc, "results/")
     meas_files = [f for f in os.listdir(result_folder_loc) if f.endswith(".csv")]
 
     num_of_meas_files = len(meas_files)
 
     #Location to save the eval results
-    eval_folder_loc = os.path.join(base_loc, "eval", "lon/")
+    eval_folder_loc = os.path.join(base_loc, "eval/")
 
     rows_spec = []
     rows_sum = []
