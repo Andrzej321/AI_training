@@ -15,9 +15,9 @@
 clear; clc;
 
 %% ================= USER CONFIG =================
-seqLen     = 50;      % sequence length
-hiddenSize = 128;     % GRU hidden size
-numLayers  = 2;       % number of GRU layers
+seqLen     = 90;      % sequence length
+hiddenSize = 208;     % GRU hidden size
+numLayers  = 3;       % number of GRU layers
 
 maxEpochs      = 100;
 miniBatchSize  = 12;
@@ -25,8 +25,8 @@ initialLR      = 1e-5;
 patience       = 5;        % set Inf to disable early stopping
 gradientClip   = 5.0;
 
-trainDir = "C:\my files\thesis\AI_training\1_data\i7\it_1\it_1_100\1_training";
-valDir   = "C:\my files\thesis\AI_training\1_data\i7\it_1\it_1_100\2_testing";
+trainDir = "C:\work\AI_training\1_data\i7\it_1\it_1_100\1_training";
+valDir   = "C:\work\AI_training\1_data\i7\it_1\it_1_100\2_testing";
 stepSize = 5;              % sliding window stride
 
 featureSelectionMode = "keep";   % "keep" | "drop" | "none"
@@ -36,8 +36,8 @@ dropFeatureCols      = [];
 useInputIdMapping = false;
 input_id = 2;     % only used if useInputIdMapping=true
 
-saveBestPath    = "C:\my files\thesis\AI_training\3_code\training_in_matlab\trained_models\GRU\trainedGRU_best.mat";
-saveHistoryPath = "C:\my files\thesis\AI_training\3_code\training_in_matlab\trained_models\GRU\trainedGRU_history.mat";
+saveBestPath    = "C:\work\AI_training\3_code\training_in_matlab\trained_models\GRU\trainedGRU_best.mat";
+saveHistoryPath = "C:\work\AI_training\3_code\training_in_matlab\trained_models\GRU\trainedGRU_history.mat";
 
 rng(42);  % reproducibility
 %% ===============================================

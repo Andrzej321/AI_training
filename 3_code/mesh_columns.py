@@ -37,7 +37,7 @@ FILE_SPECS = [
     {"path": base_loc + "GRU/results/i7_" + str(meas_num) + "_norm.csv", "columns": ["model_GRU_lon_2080.pt"], "prefix": ""},
     {"path": base_loc + "TCN/results/i7_" + str(meas_num) + "_norm.csv", "columns": ["model_TCN_lon_129.pt"], "prefix": ""},
     {"path": base_loc + "Transformer/results/i7_" + str(meas_num) + "_norm.csv", "columns": ["model_T_lon_1560.pt"], "prefix": ""},
-    {"path": other_estimators_loc + str(meas_num) + ".csv", "columns": ["best_wheel", "model_based", "ekf_m_bw", "veh_ref"], "prefix": ""},
+    {"path": other_estimators_loc + str(meas_num) + ".csv", "columns": ["best_wheel", "model_based", "ekf_m_bw", "veh_ref", "ekf_ai"], "prefix": ""},
 ]
 OUTPUT_PATH = base_loc + "0_results_unified/results_unified_" + str(meas_num) + ".csv"
 FILL_MISSING = ""  # value used for missing cells

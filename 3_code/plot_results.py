@@ -20,13 +20,13 @@ from pathlib import Path
 import re
 
 # ----------------------- USER SETTINGS (EDIT THESE) -----------------------
-test_file = 48
-csv_path = "../2_trained_models/best_models_lon/ai_models/0_results_unified/results_unified_"+ str(test_file) +".csv"   # Path to the CSV file
-x_col    = "time"                  # Column to use for x-axis
-y_cols   = ["best_wheel", "model_based", "veh_u"]  # Columns to plot as y lines
-save_path = "../4_other/plots/other_estimators/model_based/model_based_i7_" + str(test_file)                  # Set to None to show interactively
+test_file = 31
+csv_path = f"../2_trained_models/best_models_lon/ai_models/0_results_unified/results_unified_{test_file}.csv"   # Path to the CSV file
+x_col    = "time"                 # Column to use for x-axis
+y_cols   = ["veh_u", "model_T_lon_1560.pt"]  # Columns to plot as y lines
+save_path = f"../4_other/plots/transformer/transformer_{test_file}.png"                 # Set to None to show interactively
 figure_size = (7, 5)                   # Width, height in inches
-line_width = 1
+line_width = 0.8
 # --------------------------------------------------------------------------
 
 if test_file == 8:
@@ -42,8 +42,8 @@ elif test_file == 43:
 else:
     title = "Sine wave like steering"
 
-SEC_PATTERN = re.compile(r'^\s*([0-9]*\.?[0-9]+)\s*sec\s*$', re.IGNORECASE)
 
+SEC_PATTERN = re.compile(r'^\s*([0-9]*\.?[0-9]+)\s*sec\s*$', re.IGNORECASE)
 
 def maybe_strip_sec(series: pd.Series) -> pd.Series:
     """
@@ -112,8 +112,10 @@ def main():
     for col in y_cols:
         plt.plot(df[x_col], df[col], label=col, lw=line_width)
 
+
+
     plt.xlabel("Time [s]")
-    plt.ylabel("Estimated value [m/s]")
+    plt.ylabel("Longitudinal speed [m/s]")
     plt.title(title)
     if len(y_cols) > 1:
         plt.legend()
@@ -123,7 +125,7 @@ def main():
 
     if save_path:
         try:
-            plt.savefig(save_path, dpi=120)
+            plt.savefig(save_path, dpi=500)
             print(f"[INFO] Saved plot to {save_path}")
         except Exception as e:
             print(f"[ERROR] Failed to save plot: {e}")

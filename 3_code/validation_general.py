@@ -191,12 +191,13 @@ if __name__ == "__main__":
     # ========= User-editable controls =========
     model_type = "Transformer"          # "TCN" | "RNN" | "LSTM" | "GRU" | "Transformer"
     task = "lon"                # subdir for models/results; e.g., "lon", "lat", or "both"
-    iteration_num = "2_norm"           # iteration number
+    iteration_num = "1_norm"           # iteration number
     car_model = "i7"
 
     # Data and model locations
     validation_data_loc = f"../1_data/{car_model}/it_1/it_1_100_norm/3_validation/"
     base_model_dir = f"../2_trained_models/best_models_lon/ai_models/{model_type}/"
+    #base_model_dir = f"../2_trained_models/{model_type}/{car_model}/it_{iteration_num}"
     model_folder_loc = os.path.join(base_model_dir, "state_models")
     csv_save_loc = os.path.join(base_model_dir, "results")
     os.makedirs(csv_save_loc, exist_ok=True)
@@ -240,7 +241,11 @@ if __name__ == "__main__":
         features, actual_speeds = test_dataset.get_full_data()  # features: (T, C)
 
         for pt in pt_files:
-            checkpoint_path = os.path.join(model_folder_loc, pt)
+            print(pt)
+            checkpoint_path = model_folder_loc + "/" + pt
+
+            print(checkpoint_path)
+
             # Load checkpoint (weights_only may not exist in older torch)
             checkpoint = torch.load(checkpoint_path, map_location=device, weights_only=False)
 
@@ -251,6 +256,9 @@ if __name__ == "__main__":
                 device=device,
                 fallback_input_size=features.shape[1],
             )
+
+            #overriding step size
+            step_size = 1
 
             # Sliding-window inference
             pred_df = sliding_window_predict(

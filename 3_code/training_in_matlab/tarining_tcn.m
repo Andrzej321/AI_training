@@ -2,6 +2,10 @@
 % Single-model TCN training with Python-style per-epoch validation,
 % conditional best checkpoint saving, optional early stopping.
 %
+% This implementation avoids sequence folding/unfolding (unsupported in dlnetwork)
+% by representing the time axis as a spatial dimension (H=T) and using 2D conv
+% with width=1. Residual connections include 1x1 projection when channels differ.
+%
 % Data expectation:
 %   Each CSV: columns 1..F are features, last column is target (scalar).
 % Feature selection supported (keep/drop or input_id mapping).
@@ -16,7 +20,7 @@ clear; clc;
 
 %% ================= USER CONFIG =================
 % --- High-level training config ---
-seqLen     = 150;      % sequence length (window length)
+seqLen         = 50;      % sequence length (window length)
 maxEpochs      = 100;
 miniBatchSize  = 12;
 initialLR      = 1e-4;
@@ -25,26 +29,26 @@ gradientClip   = 5.0;
 
 % --- TCN architecture config ---
 % Dilation schedule for residual blocks, e.g. [1 2 4 8] or [1 2 4 8 16 32]
-dilationSchedule = [1 2 4 8];
-numResidualBlocks = numel(dilationSchedule);
+dilationSchedule   = [1 2 4 8];
+numResidualBlocks  = numel(dilationSchedule);
 
 % Channels per layer:
 % (1) scalar: same channels in all blocks, e.g. 64
 % (2) vector of length numResidualBlocks: [32 64 64 128]
-channelsPerLayer = 64;
+channelsPerLayer   = 64;
 
-% Number of Conv1D layers per residual block
-convsPerBlock = 2;
+% Number of Conv layers per residual block
+convsPerBlock      = 2;
 
-% Temporal kernel size
-kernelSize = 4;  % must be odd for symmetric padding in this implementation
+% Temporal kernel size (applied along H = time)
+kernelSize         = 4;  % causal: pad top by (kernelSize-1)*dilation
 
 % Dropout inside residual blocks
-dropoutRate = 0.1;
+dropoutRate        = 0.1;
 
 % --- Data paths & sequence extraction ---
-trainDir = "C:\my files\thesis\AI_training\1_data\i7\it_1\it_1_100\1_training";
-valDir   = "C:\my files\thesis\AI_training\1_data\i7\it_1\it_1_100\2_testing";
+trainDir = "C:\work\AI_training\1_data\i7\it_1\it_1_100\1_training";
+valDir   = "C:\work\AI_training\1_data\i7\it_1\it_1_100\2_testing";
 stepSize = 5;              % sliding window stride
 
 featureSelectionMode = "keep";   % "keep" | "drop" | "none"
@@ -54,8 +58,8 @@ dropFeatureCols      = [];
 useInputIdMapping = false;
 input_id = 2;     % only used if useInputIdMapping=true
 
-saveBestPath    = "C:\my files\thesis\AI_training\3_code\training_in_matlab\trained_models\TCN\trainedTCN_best.mat";
-saveHistoryPath = "C:\my files\thesis\AI_training\3_code\training_in_matlab\trained_models\TCN\trainedTCN_history.mat";
+saveBestPath    = "C:\work\AI_training\3_code\training_in_matlab\trained_models\TCN\trainedTCN_best.mat";
+saveHistoryPath = "C:\work\AI_training\3_code\training_in_matlab\trained_models\TCN\trainedTCN_history.mat";
 
 rng(42);  % reproducibility
 %% ===============================================
@@ -86,15 +90,18 @@ else
     channelsVec = channelsPerLayer(:)'; % row
 end
 
-%% Build TCN (last time-step output only)
-layers = [ sequenceInputLayer(inputSize,"Name","input","Normalization","none") ];
+%% Build TCN as 2D-conv over [H=T, W=1, C=features]
+% Input: imageInputLayer([H W C]) with H=seqLen, W=1, C=inputSize
+layers = [
+    imageInputLayer([seqLen 1 inputSize], "Name","input", "Normalization","none")
+];
 
-prevChannels = inputSize;
+% Keep track of last layer name per block for residual wiring
+blockLastOut = strings(numResidualBlocks,1);
+
 for b = 1:numResidualBlocks
     dilation = dilationSchedule(b);
     nCh      = channelsVec(b);
-
-    % Block naming prefix
     blockName = sprintf("b%d",b);
 
     for c = 1:convsPerBlock
@@ -103,65 +110,85 @@ for b = 1:numResidualBlocks
         reluName = sprintf("%s_relu%d",blockName,c);
         dropName = sprintf("%s_drop%d",blockName,c);
 
-        % Causal padding: we pad only on the left by (kernelSize-1)*dilation
-        pad = (kernelSize-1)*dilation;
+        % Causal padding along H (top=pad, bottom=0). No padding along W.
+        padTop = (kernelSize-1)*dilation;
 
-        layers(end+1) = sequenceFoldingLayer("Name",convName+"_fold"); %#ok<AGROW>
-        layers(end+1) = convolution1dLayer(kernelSize, nCh, ...
+        layers(end+1) = convolution2dLayer([kernelSize 1], nCh, ...
             "Name",convName, ...
-            "DilationFactor",dilation, ...
-            "Padding",[pad 0]); %#ok<AGROW>
+            "DilationFactor",[dilation 1], ...
+            "Padding",[padTop 0 0 0]); %#ok<AGROW>
         layers(end+1) = batchNormalizationLayer("Name",bnName); %#ok<AGROW>
         layers(end+1) = reluLayer("Name",reluName); %#ok<AGROW>
         if dropoutRate > 0
             layers(end+1) = dropoutLayer(dropoutRate,"Name",dropName); %#ok<AGROW>
+            lastName = dropName;
+        else
+            lastName = reluName;
         end
-        layers(end+1) = sequenceUnfoldingLayer("Name",convName+"_unfold"); %#ok<AGROW>
-
-        prevChannels = nCh; % after first conv
     end
 
-    % Residual connection from block input to block output.
-    % We will wire these in layerGraph below.
+    blockLastOut(b) = string(lastName);
 end
 
-% Final temporal pooling to scalar per sequence: use global average pooling over time.
-layers(end+1) = globalAveragePooling1dLayer("Name","gap"); %#ok<AGROW>
+% Final temporal pooling to scalar per sequence: global average over H (W=1)
+layers(end+1) = globalAveragePooling2dLayer("Name","gap"); %#ok<AGROW>
 layers(end+1) = fullyConnectedLayer(1,"Name","fc"); %#ok<AGROW>
 
-% Note: No regressionLayer in the training dlnetwork graph (we compute loss manually).
 lg = layerGraph(layers);
 
-% Wire residual connections between the appropriate layers.
-% For simplicity, we connect:
-%   - Input of block b (which is output of previous block or 'input')
-%   - To final unfolded output of that block via addition layer.
+%% Wire residual connections and projections. Route add -> next block (or gap)
+currentChannels = inputSize;
+
 for b = 1:numResidualBlocks
-    blockName = sprintf("b%d",b);
+    blockName   = sprintf("b%d",b);
+    nCh         = channelsVec(b);
+    addName     = sprintf("%s_add", blockName);
 
-    % Identify last unfold of this block
-    lastUnfoldName = sprintf("%s_conv%d_unfold",blockName,convsPerBlock);
-    addName        = sprintf("%s_add",blockName);
+    % Names for first and last layers inside the block
+    firstConvName = sprintf("%s_conv1", blockName);
+    lastOutName   = blockLastOut(b);
 
-    % Add addition layer
-    lg = addLayers(lg, additionLayer(2,"Name",addName));
-
+    % Determine block input source
     if b == 1
-        blockInputName = "input";
+        blockInputName     = "input";
     else
-        prevAddName = sprintf("b%d_add",b-1);
-        blockInputName = prevAddName;
+        blockInputName     = sprintf("b%d_add", b-1);
     end
 
-    % Connect block input and block output to adder
-    lg = connectLayers(lg, blockInputName, sprintf('%s/in1', addName));
-    lg = connectLayers(lg, lastUnfoldName, sprintf('%s/in2', addName));
+    % Addition layer for residual sum
+    lg = addLayers(lg, additionLayer(2,"Name",addName));
+
+    % Skip/projection branch
+    if currentChannels ~= nCh
+        % 1x1 projection to match channels
+        projName = sprintf("%s_skip_conv1x1", blockName);
+        lg = addLayers(lg, convolution2dLayer([1 1], nCh, "Padding","same", "Name", projName));
+        lg = connectLayers(lg, blockInputName, projName);
+        lg = connectLayers(lg, projName, addName + "/in1");
+    else
+        % Direct skip
+        lg = connectLayers(lg, blockInputName, addName + "/in1");
+    end
+
+    % Main path output into adder
+    lg = connectLayers(lg, lastOutName, addName + "/in2");
+
+    % Route forward: adder output feeds next block's first conv or GAP
+    if b < numResidualBlocks
+        nextFirst = sprintf("b%d_conv1", b+1);
+        % Replace default connection lastOut -> nextFirst with add -> nextFirst
+        lg = safeDisconnect(lg, char(lastOutName), nextFirst);
+        lg = connectLayers(lg, addName, nextFirst);
+    else
+        % Last block: send to GAP
+        lg = safeDisconnect(lg, char(lastOutName), "gap");
+        lg = connectLayers(lg, addName, "gap");
+    end
+
+    currentChannels = nCh;
 end
 
-% Connect final add to global average pooling
-lastAddName = sprintf("b%d_add",numResidualBlocks);
-lg = connectLayers(lg, lastAddName, "gap");
-
+% Create dlnetwork
 dlnet = dlnetwork(lg);
 
 %% Training state
@@ -195,7 +222,7 @@ for epoch = 1:maxEpochs
         batchIdx = order(startIdx:min(startIdx+miniBatchSize-1, numTrainSeq));
         iteration = iteration + 1;
 
-        % Prepare batch: (F x T) → dlarray 'CTB'; targets row vector [1 x B]
+        % Prepare batch: (F x T) → dlarray 'SSCB' as [T x 1 x F x B]; targets row vector [1 x B] (CB)
         [dlX, dlY] = makeBatch(XTrain(batchIdx), YTrain(batchIdx));
 
         % Forward + gradients
@@ -220,8 +247,8 @@ for epoch = 1:maxEpochs
     for startIdx = 1:miniBatchSize:numValSeq
         batchIdx = startIdx:min(startIdx+miniBatchSize-1, numValSeq);
         [dlXv, dlYv] = makeBatch(XVal(batchIdx), YVal(batchIdx));
-        dlOutVal = forward(dlnet, dlXv);   % [1 x B]
-        lossVal = mse(dlOutVal, dlYv);     % both are [1 x B]
+        yValPred = forward(dlnet, dlXv);        % expected 'CB' [1 x B]
+        lossVal  = mse(yValPred, dlYv);         % both 'CB' [1 x B]
         valLossAccum = valLossAccum + double(lossVal);
         valBatches = valBatches + 1;
     end
@@ -263,6 +290,7 @@ fprintf("History saved to %s\n", saveHistoryPath);
 
 function netOut = assembleForSave(dlnet)
     % Add regression layer, connect 'fc'->'regression', assemble to DAG/Series.
+    % fc outputs 'CB' for GAP2D input, which regressionLayer expects.
     lgSave = layerGraph(dlnet);
     hasReg = any(strcmp({lgSave.Layers.Name}, 'regression'));
     if ~hasReg
@@ -279,18 +307,18 @@ function [dlX, dlY] = makeBatch(XCell, YVec)
     batchSize = numel(XCell);
     F = size(XCell{1},1);
     T = size(XCell{1},2);
-    X = zeros(F, T, batchSize, 'single');
+    X = zeros(T, 1, F, batchSize, 'single'); % H=T, W=1, C=F, B=batch
     for i = 1:batchSize
-        Xi = XCell{i};
-        X(:,:,i) = single(Xi);
+        Xi = single(XCell{i});   % F x T
+        X(:,1,:,i) = reshape(permute(Xi, [2 1]), [T 1 F]); % -> T x 1 x F
     end
-    dlX = dlarray(X, 'CTB');           % C=features, T=time, B=batch
-    dlY = dlarray(single(YVec(:)'));   % row vector [1 x B]
+    dlX = dlarray(X, 'SSCB');                 % H, W, C, B
+    dlY = dlarray(single(YVec(:))', 'CB');    % row vector [1 x B]
 end
 
 function [gradients, loss] = modelGradients_tcn(dlnet, dlX, dlYrow)
-    dlOut = forward(dlnet, dlX); % [1 x batch]
-    loss = mse(dlOut, dlYrow);
+    yPred = forward(dlnet, dlX); % expected 'CB' [1 x B]
+    loss  = mse(yPred, dlYrow);
     gradients = dlgradient(loss, dlnet.Learnables);
 end
 
@@ -299,6 +327,13 @@ function g = clipGrad(g, clipVal)
     n = sqrt(sum(g(:).^2));
     if n > clipVal
         g = g * (clipVal / max(n, eps('like',g)));
+    end
+end
+
+function lg = safeDisconnect(lg, src, dst)
+    conn = lg.Connections;
+    if any(strcmp(conn.Source, src) & strcmp(conn.Destination, dst))
+        lg = disconnectLayers(lg, src, dst);
     end
 end
 
