@@ -11,3 +11,4 @@ python -c "import sys; print(sys.executable)"
 
 REM 4. Now run your code
 python training_TCN_fast.py
+python training_RNN_fast.py

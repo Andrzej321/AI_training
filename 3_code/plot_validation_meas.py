@@ -12,12 +12,12 @@ save_path = "../4_other/plots/validation_meas.png"  # Use .png for image
 figure_size = (10, 5)
 line_width = 1
 title = "Validation measurements"
-measurements = ["Steer until a_y is reached (snow mode on)", "Steer until a_y is reached (snow mode off)"
-    , "Accelerate until a_x is reached", "Brake until a_x is reached (steering wheel == 0)"
+measurements = ["Steer until a_y is reached (Snow mode ON)", "Steer until a_y is reached (Snow mode OFF)"
+    , "Accelerate until a_x is reached", "Brake until a_x is reached (steering wheel ~= 0)"
     , "Brake until a_x is reached (steering wheel != 0)", "Sine wave like steering"]
 # -------------------------------------------------------------
 
-SEC_PATTERN = re.compile(r'^\s*([0-9]*\.?[0-9]+)\s*sec\s*$', re.IGNORECASE)
+SEC_PATTERN = re.compiler('^\s*([0-9]*\.?[0-9]+)\s*sec\s*$', re.IGNORECASE)
 
 def maybe_strip_sec(series: pd.Series) -> pd.Series:
     if series.dtype != object:

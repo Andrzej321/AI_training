@@ -1,0 +1,3 @@
+This folder contains the training, validation and test data. The names of the main folders indicate the source of the data. Within each folder there are iteration folders where each iteration means a different variation of the data. Within these folders there are subfolders where the names indicate the sampling rate and the normalization. 
+
+Example: i7/it_1/it_1_100_norm → data from the i7 measurements, first iteration, 100 Hz, normalized. 
