@@ -20,13 +20,13 @@ from pathlib import Path
 import re
 
 # ----------------------- USER SETTINGS (EDIT THESE) -----------------------
-test_file = 31
+test_file = 8
 csv_path = f"../2_trained_models/best_models_lon/ai_models/0_results_unified/results_unified_{test_file}.csv"   # Path to the CSV file
 x_col    = "time"                 # Column to use for x-axis
-y_cols   = ["veh_u", "model_T_lon_1560.pt"]  # Columns to plot as y lines
-save_path = f"../4_other/plots/transformer/transformer_{test_file}.png"                 # Set to None to show interactively
-figure_size = (7, 5)                   # Width, height in inches
-line_width = 0.8
+y_cols   = ["veh_u_gps", "model_TCN_lon_129.pt", "veh_ref", "ekf_ai", "best_wheel"]  # Columns to plot as y lines
+save_path = f"../4_other/plots/onepager_{test_file}.png"                 # Set to None to show interactively
+figure_size = (10, 5)                   # Width, height in inches
+line_width = 1
 # --------------------------------------------------------------------------
 
 if test_file == 8:
